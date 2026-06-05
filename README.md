@@ -37,7 +37,7 @@ Group’s tech stack plan:
       Express will be used only if additional backend functionality becomes necessary. In addition, the majority of the team has experience in utilizing Express with Node.js.
 
 
-# I. Proposed Structure:
+## I. Proposed Structure:
 
   1. Introduction (Story Hook)
      
@@ -72,7 +72,7 @@ Group’s tech stack plan:
      - 1999-2000: global remediation effort
 
 
-# II. Interactive Components
+## II. Interactive Components
 
   1. Interactive Simulation - “The Year Counter: Stop at 2000.”
      
@@ -121,7 +121,7 @@ Group’s tech stack plan:
     Why did Y2K cost billions to fix
 
 
-# III. Proposed Design Layout
+## III. Proposed Design Layout
 
   PC Display
   
