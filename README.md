@@ -40,11 +40,12 @@ Group’s tech stack plan:
 # I. Proposed Structure:
 
   1. Introduction (Story Hook)
+     
     - What is Y2K?
     - Why everyone feared the year 2000
     - “Would computers think 2000 = 1900?”
   
-  2. Technical Explanation (CSARCH core)
+  3. Technical Explanation (CSARCH core)
      
     a. 2-Digit Year Storage
       - In the early years of computing, storage costs were extremely expensive, and so programmers stored years as only 2 digits in order to conserve space. COBOL, which was the dominant language, defined it in its data          definitions as 6-digit date fields: PIC 9(6) 
@@ -65,9 +66,10 @@ Group’s tech stack plan:
       c. Crashes: Some systems didn’t recognize “00” and would outright be rejected as input.
   
   3. Timeline Section (visual)
-      1970-1990: systems designed with shortcuts
-      1995-1999: panic begins
-      1999-2000: global remediation effort
+     
+     1970-1990: systems designed with shortcuts
+     1995-1999: panic begins
+     1999-2000: global remediation effort
 
 
 * II. Interactive Components
