@@ -1,5 +1,4 @@
 # CSARCH2-Virtual-Exhibit-Proposal
-CSARCH2 Computer Architecture virtual exhibit project 2026
 
 Group’s title: Project Y2K
 
@@ -38,7 +37,7 @@ Group’s tech stack plan:
       Express will be used only if additional backend functionality becomes necessary. In addition, the majority of the team has experience in utilizing Express with Node.js.
 
 
-I. Proposed Structure:
+# I. Proposed Structure:
 
   1. Introduction (Story Hook)
     - What is Y2K?
@@ -71,7 +70,7 @@ I. Proposed Structure:
       1999-2000: global remediation effort
 
 
-II. Interactive Components
+* II. Interactive Components
 
   1. Interactive Simulation - “The Year Counter: Stop at 2000.”
      
@@ -120,7 +119,7 @@ II. Interactive Components
     Why did Y2K cost billions to fix
 
 
-III. Proposed Design Layout
+* III. Proposed Design Layout
 
 PC Display
 
