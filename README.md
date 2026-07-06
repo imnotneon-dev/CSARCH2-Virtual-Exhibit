@@ -234,34 +234,38 @@ This game turns the player into the CPU. Each round presents a branch instructio
 
 **Gameplay:**
 
+A briefing screen opens the game with the scenario, a how-to-play walkthrough, and a description of every action, before a **Start Incident Response** button begins the run.
+
 Players are given a set of vulnerable systems:
-  - `[1]` Banking Server
-  - `[2]` Cloud Database
-  - `[3]` Hospital Records
-  - `[4]` Government Portal
-  - `[5]` Web Browser
+  - `[1]` Banking Server (Critical)
+  - `[2]` Cloud Database (Critical)
+  - `[3]` Hospital Records (High)
+  - `[4]` Government Portal (High)
+  - `[5]` Web Browser (Medium)
   
-Each system requires a different patching effort.
+Each system requires a different patching effort, and only **2 engineers** can work at once; attempting a 3rd action is blocked until one finishes.
 
-The player has limited time and resources.
+The player has a shared **90-second countdown** (limited time) and a **2-engineer capacity** (limited resources).
 
-Possible actions:
+Possible actions (all 5 are available on every system):
 - Apply Operating System Patch
 - Install Browser Update
 - Enable Kernel Isolation
-- Ignore Risk
 - Deploy Security Monitoring
+- Ignore Risk
   
-Every choice consumes time.
+Every choice consumes time; even Ignore Risk, which takes a few seconds to log.
+
+Each system has one or two *correct* actions (e.g., the Web Browser needs a Browser Update; servers need an OS Patch or Kernel Isolation). Applying the right patch **fully secures** the system. Applying the **wrong** patch still costs the full time but does nothing; the system is left "Misapplied." Deploy Security Monitoring is faster than a full patch but only ever gives **partial** coverage. The run ends when the timer hits zero, or immediately if every system is fully secured first.
 
 **Outcome states:**
-- Most critical systems patched→ **Secure Infrastructure** ending
-- Systems missed → **Partial Breach** ending
-- Critical systems ignored → **Major Security Incident** ending
-
+- Both critical systems (Banking Server, Cloud Database) fully secured, and everything else secured or monitored → **Secure Infrastructure** ending
+- Critical systems held, but a system was missed, misapplied, or only monitored → **Partial Breach** ending
+- A critical system left vulnerable, ignored, misapplied, or still mid-patch when time runs out → **Major Security Incident** ending
+- 
 **What it teaches:**
 - Real-world cybersecurity incident response
-- Resource prioritization
+- Resource prioritization under time pressure and staffing limits
 - Importance of patch management
 - Why organizations spent significant resources mitigating Spectre and Meltdown
 
