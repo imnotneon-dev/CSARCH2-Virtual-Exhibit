@@ -496,12 +496,23 @@ export default function SpeculativeExecutionLab() {
   return (
     <section className={`spec-lab ${toClassName(status)}`}>
       <div className="game-heading">
-        <p>Interactive Game</p>
-        <h2>Speculative Execution Lab</h2>
         <span>
-          Process instructions quickly, but avoid leaving secret data in the
-          cache.
+          You are the CPU. Each round hands you one branch instruction it's
+          about to run. Decide whether to speculate on it, wait for the
+          check, flush the trace afterward, or fence it off completely.
+          Speculating is fast but can leave secret data sitting in the cache;
+          playing it safe costs cycles instead.
         </span>
+      </div>
+
+      <div className="how-to-play">
+        <p className="eyebrow">How Each Round Works</p>
+        <ol>
+          <li><strong>Read the Instruction Card</strong> - what the code does, how sensitive the data is, and how confident the branch predictor is.</li>
+          <li><strong>Check the Policy Read</strong> - a plain-language take on whether this branch is worth speculating on.</li>
+          <li><strong>Pick a Player Action</strong> - Wait, Speculate, Speculate + Flush, or Fence. Each spends cycles and risk differently.</li>
+          <li><strong>Watch both meters</strong> - the run ends if Cache Trace Risk hits 100% or the Cycle Budget hits 0, or once all 10 rounds are cleared.</li>
+        </ol>
       </div>
 
       <div className="lab-frame">
@@ -515,6 +526,10 @@ export default function SpeculativeExecutionLab() {
         <div className="lab-grid">
           <div className="panel instruction-panel">
             <p className="eyebrow">Instruction Card</p>
+            <p className="panel-intro">
+              The branch the CPU is about to hit this round. Weigh the data
+              type and prediction confidence before you act.
+            </p>
             <div className="card-meta">
               <strong>{currentRound?.label}</strong>
               <span className={`risk ${toClassName(currentRound?.baseRisk || "")}`}>
@@ -553,6 +568,10 @@ export default function SpeculativeExecutionLab() {
 
           <div className="panel stats-panel">
             <p className="eyebrow">Player Stats</p>
+            <p className="panel-intro">
+              Your two budgets for the whole run. Either hitting zero (cycles)
+              or 100% (risk) ends the game early.
+            </p>
             <dl className="status-grid">
               <div>
                 <dt>Cycle Budget</dt>
@@ -587,6 +606,9 @@ export default function SpeculativeExecutionLab() {
 
           <div className="panel action-panel">
             <p className="eyebrow">Player Actions</p>
+            <p className="panel-intro">
+              Choose how the CPU handles this round's branch. Pick one.
+            </p>
             <div className="action-list">
               {ACTIONS.map((action) => (
                 <button
@@ -705,6 +727,37 @@ export default function SpeculativeExecutionLab() {
         .accuracy-note p {
           color: var(--muted);
           line-height: 1.7;
+        }
+
+        .how-to-play {
+          background: rgba(37, 243, 154, 0.05);
+          border: 1px solid rgba(37, 243, 154, 0.2);
+          margin-bottom: 24px;
+          padding: 20px 22px;
+        }
+
+        .how-to-play ol {
+          display: grid;
+          gap: 10px;
+          margin: 0;
+          padding-left: 1.2em;
+        }
+
+        .how-to-play li {
+          color: var(--muted);
+          font-size: 0.88rem;
+          line-height: 1.55;
+        }
+
+        .how-to-play li strong {
+          color: var(--text);
+        }
+
+        .panel-intro {
+          color: var(--muted);
+          font-size: 0.82rem;
+          line-height: 1.55;
+          margin: 0 0 16px;
         }
 
         .lab-frame {

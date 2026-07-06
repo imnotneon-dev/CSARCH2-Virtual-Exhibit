@@ -1,0 +1,206 @@
+---
+layout: ../layouts/ExhibitLayout.astro
+title: "Project Spectre — Spectre & Meltdown Virtual Exhibit"
+---
+
+import PasswordLeak from '../components/PasswordLeak.jsx';
+import SpeculativeExecutionLab from '../components/SpeculativeExecutionLab.jsx';
+import PatchMemoryLeak from '../components/PatchMemoryLeak.jsx';
+import SpectreTimeline from '../components/SpectreTimeline.jsx';
+
+{/* ── NAV ── */}
+<nav>
+  <span class="nav-logo">// Project Spectre</span>
+  <ul class="nav-links">
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#timeline">Timeline</a></li>
+    <li><a href="#simulator">Simulator</a></li>
+    <li><a href="#lab">Lab</a></li>
+    <li><a href="#game">Game</a></li>
+  </ul>
+  <span class="nav-badge">CVE-2017-5754</span>
+</nav>
+
+{/* ── ALERT STRIP ── */}
+<div class="alert-strip">
+  <span class="alert-tag">CRITICAL</span>
+  <span class="alert-text">VULNERABILITY DISCLOSURE — JANUARY 3, 2018 — SPECTRE (CVE-2017-5753 / CVE-2017-5715) + MELTDOWN (CVE-2017-5754) — HARDWARE-LEVEL EXPLOIT — ALL MODERN CPUs AFFECTED</span>
+</div>
+
+{/* ── HERO ── */}
+<section class="hero" id="overview">
+  <div class="hero-grid-bg"></div>
+  <div class="hero-glow"></div>
+  <div class="hero-glow-2"></div>
+  <div class="hero-inner">
+    <div class="hero-eyebrow">CS Architecture — Virtual Exhibit</div>
+    <h1 class="hero-title">
+      <span class="word-spectre">Spectre</span><br />
+      <span class="word-and">&amp;</span> <span class="word-meltdown">Meltdown</span>
+    </h1>
+    <p class="hero-subtitle">
+      In January 2018, two hardware vulnerabilities exposed nearly every modern processor to data theft.
+      This exhibit walks through what happened, why it was nearly impossible to fix, and what it changed.
+    </p>
+    <div class="hero-meta">
+      <a href="#timeline" class="hero-cta">Enter Exhibit</a>
+      <div class="hero-divider"></div>
+      <div class="hero-stat">
+        <span class="hero-stat-num">2B+</span>
+        <span class="hero-stat-label">CPUs Affected</span>
+      </div>
+      <div class="hero-divider"></div>
+      <div class="hero-stat">
+        <span class="hero-stat-num">1995</span>
+        <span class="hero-stat-label">Vulnerability Origin</span>
+      </div>
+      <div class="hero-divider"></div>
+      <div class="hero-stat">
+        <span class="hero-stat-num">3 yrs</span>
+        <span class="hero-stat-label">To Patch Fully</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+{/* ── CONCEPTS ── */}
+<section class="section" id="concepts">
+  <div class="section-inner">
+    <div class="section-label">Core Concepts</div>
+    <h2 class="section-heading">What Made This<br />Possible</h2>
+    <p class="section-body">Both attacks exploited a performance feature that has been standard in CPUs for decades. Understanding it is understanding the crisis.</p>
+
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-index">01 — Foundation</div>
+        <div class="card-title">Speculative Execution</div>
+        <div class="card-body">
+          Modern processors predict what instructions will run next and execute them in advance.
+          When the prediction is wrong, the CPU discards the result — but the timing trace it leaves behind is not erased.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-index">02 — Side Channel</div>
+        <div class="card-title">CPU Cache Timing</div>
+        <div class="card-body">
+          The cache stores recently accessed data for fast retrieval. An attacker can measure how long memory lookups take.
+          A fast response means the data was cached — revealing what was accessed.
+        </div>
+      </div>
+      <div class="card card-red">
+        <div class="card-index">03 — Exploit A</div>
+        <div class="card-title">Meltdown</div>
+        <div class="card-body">
+          Breaks the boundary between user applications and OS kernel memory. A normal program should never read kernel
+          data — Meltdown made it possible on virtually every Intel CPU made since 1995.
+        </div>
+      </div>
+      <div class="card card-amber">
+        <div class="card-index">04 — Exploit B</div>
+        <div class="card-title">Spectre</div>
+        <div class="card-body">
+          Manipulates the speculative execution of other programs, causing them to leak their own private data.
+          Harder to exploit, harder to fix, and affects CPUs from every major manufacturer.
+        </div>
+      </div>
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="dot dot-red"></span>
+        <span class="dot dot-yellow"></span>
+        <span class="dot dot-green"></span>
+        <span class="terminal-label">speculative_exec_demo.c — cache probe</span>
+      </div>
+      <div class="terminal-body">
+        <div class="t-muted">// A vulnerable code pattern — processor speculatively executes line 2</div>
+        <div><span class="t-muted">1  </span><span class="t-green">if</span> (x &lt; array1_size) &#123;</div>
+        <div><span class="t-muted">2    </span>y = array2[array1[x] * 512];<span class="t-muted">  // cache loaded before bounds check</span></div>
+        <div><span class="t-muted">3  </span>&#125;</div>
+        <div>&nbsp;</div>
+        <div class="t-prompt">probe_cache(array2, 256)   <span class="t-muted">// measure access time per byte</span></div>
+        <div><span class="t-red">[HIT]</span> <span class="t-amber">0x50</span> — 4 cycles  <span class="t-muted">// secret byte was: 0x50 ('P')</span></div>
+        <div><span class="t-green">[MISS]</span> 0x00 — 187 cycles</div>
+        <div><span class="t-green">[MISS]</span> 0x01 — 192 cycles</div>
+        <div><span class="t-muted">...</span><span class="cursor"></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+{/* ── TIMELINE ── */}
+<section class="section" id="timeline">
+  <div class="section-inner">
+    <div class="section-label">Timeline</div>
+    <h2 class="section-heading">From Optimization<br />to Crisis</h2>
+    <p class="section-body">
+      The vulnerability was not introduced in a single moment. It accumulated across decades of performance
+      decisions — discovered quietly, then dropped on the world simultaneously.
+    </p>
+    <div style="margin-top: 2.5rem;">
+      <SpectreTimeline client:load />
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+{/* ── SIMULATION ── */}
+<section class="section" id="simulator">
+  <div class="section-inner">
+    <div class="section-label">Interactive Simulation</div>
+    <h2 class="section-heading">The Hidden Password Leak</h2>
+    <p class="section-body">
+      Switch between the user's view and the attacker's view. Watch how cache timing measurements
+      gradually reconstruct data that is never directly read.
+    </p>
+    <div style="margin-top: 2.5rem;">
+      <PasswordLeak client:load />
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+{/* ── SPECULATIVE EXECUTION LAB ── */}
+<section class="section" id="lab">
+  <div class="section-inner">
+    <div class="section-label">Interactive Game — CPU Pipeline</div>
+    <h2 class="section-heading">Speculative Execution Lab</h2>
+    <p class="section-body">
+      You control the CPU. For each instruction, decide whether to speculate, wait, flush, or fence.
+      Balance speed against the risk of leaving sensitive data in the cache.
+    </p>
+    <div style="margin-top: 2.5rem;">
+      <SpeculativeExecutionLab client:load />
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+{/* ── PATCH GAME ── */}
+<section class="section" id="game">
+  <div class="section-inner">
+    <div class="section-label">Interactive Game — Incident Response</div>
+    <h2 class="section-heading">Patch the Memory Leak</h2>
+    <p class="section-body">
+      You are a security engineer. It is January 3, 2018. Five critical systems are exposed.
+      You have limited time — prioritize and patch before the window closes.
+    </p>
+    <div style="margin-top: 2.5rem;">
+      <PatchMemoryLeak client:load />
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+{/* ── FOOTER ── */}
+<footer>
+  <span class="footer-logo">// Project Spectre</span>
+  <span class="footer-text">GROUP 07 — Adrian Matthew Dee · Alain Zuriel Marcos · Elkan La Madrid · Jenrick Lim · Kent Lopez</span>
+  <span class="footer-text">CS Architecture — Virtual Exhibit — 2026</span>
+</footer>

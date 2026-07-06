@@ -196,12 +196,17 @@ export default function PasswordLeak() {
       : detectionRisk > 0 || roundReady
         ? "Monitoring"
         : "Secure";
+  const statusTone = gameLost
+    ? "status-red"
+    : detectionRisk >= 70
+      ? "status-amber"
+      : "status-green";
   const instruction = gameEnded
     ? "Press Reset to try another simulated password."
     : view === "user"
       ? "Click View as Attacker to inspect timing side effects."
       : roundReady
-        ? "Click the probe-array address with the lowest cycle count."
+        ? "Click the probe address with the lowest cycle count."
         : "Click Trigger Memory Access to start a cache timing round.";
 
   const reconstructionBuffer = useMemo(() => {
@@ -242,7 +247,7 @@ export default function PasswordLeak() {
     setProbes(makeActiveProbeSet());
     setRoundReady(true);
     setMessage(
-      "Sensitive data was accessed internally. Observe the live timing units and choose the fastest probe-array address."
+      "Sensitive data was accessed internally. Find the address with the shortest access time."
     );
   }
 
@@ -261,7 +266,7 @@ export default function PasswordLeak() {
       setMessage(
         nextRevealed === secret.length
           ? "Secret reconstructed through cache timing analysis."
-          : `Correct. ${probe.address} was the likely cache-hit address. The next timing round is active.`
+          : `Correct. ${probe.address} was the cache-hit address. Next round is live.`
       );
       return;
     }
@@ -278,7 +283,7 @@ export default function PasswordLeak() {
     setMessage(
       nextRisk >= 100
         ? "System alert triggered. Attack failed before the secret was reconstructed."
-        : "Incorrect probe selected. Suspicious probing activity increased. The next timing round is active."
+        : "Wrong address. Suspicious probing activity increased."
     );
   }
 
@@ -297,8 +302,6 @@ export default function PasswordLeak() {
   return (
     <section className="password-leak">
       <div className="sim-heading">
-        <p>Interactive Simulation</p>
-        <h2>The Hidden Password Leak</h2>
         <span>
           The password remains hidden, but cache timing can still reveal clues.
         </span>
@@ -306,7 +309,7 @@ export default function PasswordLeak() {
 
       <div className="terminal-frame">
         <header>
-          <strong>Memory Access Monitor - Side Channel Demo</strong>
+          <strong>Memory Access Monitor — Side Channel Demo</strong>
           <span className={view === "attacker" ? "alert" : "safe"}>
             {view === "attacker" ? "Attacker View Active" : "User View Active"}
           </span>
@@ -320,20 +323,11 @@ export default function PasswordLeak() {
               <strong>{"*".repeat(secret.length)}</strong>
             </div>
 
-            <dl className="status-grid">
-              <div>
-                <dt>System Status</dt>
-                <dd>{systemStatus}</dd>
-              </div>
-              <div>
-                <dt>Access Level</dt>
-                <dd>{view === "attacker" ? "Observer" : "User"}</dd>
-              </div>
-              <div>
-                <dt>Detection Risk</dt>
-                <dd>{detectionRisk}%</dd>
-              </div>
-            </dl>
+            <div className={`status-line ${statusTone}`}>
+              <span className="status-dot" />
+              <span>{systemStatus}</span>
+              <span className="status-risk">Detection risk {detectionRisk}%</span>
+            </div>
 
             <div className="risk-meter" aria-label={`Detection risk ${detectionRisk}%`}>
               <span style={{ width: `${detectionRisk}%` }} />
@@ -356,10 +350,10 @@ export default function PasswordLeak() {
           </div>
 
           <div className="panel attacker-panel">
-            <p className="eyebrow">Attacker Dashboard - Probe Array</p>
+            <p className="eyebrow">Attacker Dashboard — Probe Array</p>
 
             <div className="reconstruction">
-              <span>Attacker Reconstruction Buffer</span>
+              <span>Reconstruction buffer — {revealed} of {secret.length} bytes locked</span>
               <div className="reconstruction-field" aria-label="Attacker reconstruction buffer">
                 {reconstructionBuffer.split("").map((char, index) => (
                   <span
@@ -370,9 +364,6 @@ export default function PasswordLeak() {
                   </span>
                 ))}
               </div>
-              <span>
-                {revealed} of {secret.length} inferred bytes locked from timing
-              </span>
             </div>
 
             <div className="probe-table" aria-label="Probe-array timing list">
@@ -395,7 +386,7 @@ export default function PasswordLeak() {
                     <span className="bar" style={{ "--fill": width }}>
                       <i />
                     </span>
-                    <span className="cycles">{probe.cycles} cycles</span>
+                    <span className="cycles">{probe.cycles} cy</span>
                   </button>
                 );
               })}
@@ -424,15 +415,13 @@ export default function PasswordLeak() {
 
       {gameEnded && (
         <aside className="end-explanation">
-          <p className="eyebrow">What This Shows</p>
+          <p className="eyebrow">Reading the Timing Attack</p>
           <p>
-            The probe table represents a simplified attacker-controlled probe
-            array. In real cache side-channel attacks, an attacker measures
-            which memory location becomes faster to access. The faster location
-            can reveal information about secret data that affected the cache
-            during speculative execution. This exhibit shows only a small number
-            of visible probes for readability, but real demonstrations may use
-            many more possible probe slots.
+            The probe table is a simplified stand-in for a real cache side-channel:
+            an attacker measures which memory address answers fastest, and a fast
+            answer means that data was already sitting in the cache. That timing
+            difference — not the memory itself — is what leaks the secret. Real
+            attacks probe far more addresses than shown here.
           </p>
         </aside>
       )}
@@ -469,12 +458,6 @@ export default function PasswordLeak() {
           text-transform: uppercase;
         }
 
-        .sim-heading h2 {
-          font-size: clamp(2rem, 4vw, 3.2rem);
-          line-height: 1;
-          margin: 0 0 14px;
-        }
-
         .sim-heading span,
         .note,
         .end-explanation p {
@@ -506,27 +489,19 @@ export default function PasswordLeak() {
           text-transform: uppercase;
         }
 
-        .safe {
-          color: var(--green);
-        }
-
-        .alert,
-        .failure {
-          color: var(--red);
-        }
-
-        .success {
-          color: var(--green);
-        }
+        .safe { color: var(--green); }
+        .alert, .failure { color: var(--red); }
+        .success { color: var(--green); }
 
         .panels {
           display: grid;
-          grid-template-columns: minmax(280px, 0.9fr) minmax(420px, 1.35fr);
+          grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.35fr);
           min-height: 420px;
         }
 
         .panel {
           padding: 28px;
+          min-width: 0;
         }
 
         .panel + .panel {
@@ -542,9 +517,7 @@ export default function PasswordLeak() {
           padding: 18px;
         }
 
-        .password-box span,
-        .reconstruction span,
-        .status-grid dt {
+        .password-box span {
           color: var(--muted);
           font-size: 0.78rem;
         }
@@ -557,22 +530,32 @@ export default function PasswordLeak() {
           overflow-wrap: anywhere;
         }
 
-        .status-grid {
-          display: grid;
+        .status-line {
+          align-items: center;
+          display: flex;
+          flex-wrap: wrap;
           gap: 10px;
-          grid-template-columns: repeat(3, 1fr);
-          margin: 0 0 14px;
-        }
-
-        .status-grid div {
-          border: 1px solid rgba(139, 160, 186, 0.16);
-          padding: 12px;
-        }
-
-        .status-grid dd {
-          color: var(--green);
           font-family: "Courier New", ui-monospace, monospace;
-          margin: 6px 0 0;
+          font-size: 0.76rem;
+          letter-spacing: 0.04em;
+          margin-bottom: 10px;
+        }
+
+        .status-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: currentColor;
+          flex-shrink: 0;
+        }
+
+        .status-green { color: var(--green); }
+        .status-amber { color: var(--amber); }
+        .status-red { color: var(--red); }
+
+        .status-risk {
+          color: var(--muted);
+          margin-left: auto;
         }
 
         .risk-meter {
@@ -598,6 +581,11 @@ export default function PasswordLeak() {
           display: grid;
           gap: 10px;
           margin-bottom: 22px;
+        }
+
+        .reconstruction > span {
+          color: var(--muted);
+          font-size: 0.78rem;
         }
 
         .reconstruction-field {
@@ -628,7 +616,7 @@ export default function PasswordLeak() {
 
         .probe-table {
           display: grid;
-          gap: 8px;
+          gap: 6px;
           margin-bottom: 22px;
         }
 
@@ -637,7 +625,7 @@ export default function PasswordLeak() {
           align-items: center;
           display: grid;
           gap: 12px;
-          grid-template-columns: minmax(170px, 1fr) minmax(92px, 0.9fr) 82px;
+          grid-template-columns: minmax(140px, 1fr) minmax(80px, 0.9fr) 64px;
         }
 
         .probe-head {
@@ -646,6 +634,7 @@ export default function PasswordLeak() {
           font-size: 0.72rem;
           letter-spacing: 0.08em;
           text-transform: uppercase;
+          padding: 0 10px;
         }
 
         .probe-head span:first-child {
@@ -654,23 +643,27 @@ export default function PasswordLeak() {
 
         .probe-row {
           background: transparent;
-          border: 0;
+          border: 1px solid transparent;
+          border-radius: 2px;
           color: var(--text);
           cursor: pointer;
           font-family: "Courier New", ui-monospace, monospace;
           font-size: 0.78rem;
-          min-height: 28px;
-          padding: 0;
+          min-height: 40px;
+          padding: 0 10px;
           text-align: left;
+          transition: background 0.15s, border-color 0.15s;
         }
 
         .probe-row:disabled {
           cursor: default;
-          opacity: 0.66;
+          opacity: 0.55;
         }
 
-        .probe-row:not(:disabled):hover {
-          color: var(--green);
+        .probe-row:not(:disabled):hover,
+        .probe-row:not(:disabled):focus-visible {
+          background: rgba(37, 243, 154, 0.06);
+          border-color: rgba(37, 243, 154, 0.3);
         }
 
         .address {
@@ -720,11 +713,17 @@ export default function PasswordLeak() {
           min-height: 40px;
           padding: 0 16px;
           text-transform: uppercase;
+          transition: background 0.15s, color 0.15s;
         }
 
         button.primary {
           border-color: var(--green);
           color: var(--green);
+        }
+
+        button.primary:hover:not(:disabled) {
+          background: var(--green);
+          color: #070b10;
         }
 
         button.secondary {
@@ -735,6 +734,11 @@ export default function PasswordLeak() {
         button.danger {
           border-color: var(--red);
           color: var(--red);
+        }
+
+        button.danger:hover:not(:disabled) {
+          background: var(--red);
+          color: #fff;
         }
 
         button:disabled {
@@ -773,8 +777,7 @@ export default function PasswordLeak() {
         }
 
         @media (max-width: 860px) {
-          .panels,
-          .status-grid {
+          .panels {
             grid-template-columns: 1fr;
           }
 
@@ -787,12 +790,16 @@ export default function PasswordLeak() {
             align-items: flex-start;
             flex-direction: column;
           }
+
+          .status-risk {
+            margin-left: 0;
+          }
         }
 
         @media (max-width: 540px) {
           .probe-head,
           .probe-row {
-            grid-template-columns: minmax(0, 1fr) 74px;
+            grid-template-columns: minmax(0, 1fr) 60px;
           }
 
           .probe-head span:first-child {
