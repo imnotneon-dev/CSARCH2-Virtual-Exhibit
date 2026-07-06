@@ -1,5 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 
+const TOTAL_TIME = 90; // seconds — shared countdown (the "limited time")
+const MAX_CONCURRENT = 2; // engineers available at once (the "limited resources")
+
+const ACTIONS = [
+  { id: "osPatch", label: "Apply OS Patch", short: "OS Patch" },
+  { id: "browserUpdate", label: "Install Browser Update", short: "Browser Update" },
+  { id: "kernelIsolation", label: "Enable Kernel Isolation", short: "Kernel Isolation" },
+  { id: "monitoring", label: "Deploy Security Monitoring", short: "Monitor" },
+  { id: "ignore", label: "Ignore Risk", short: "Ignore" },
+];
+
 const SYSTEMS = [
   {
     id: 1,
@@ -7,8 +18,8 @@ const SYSTEMS = [
     risk: "Critical",
     riskLevel: 4,
     description: "Processes financial transactions. A breach exposes account data for millions.",
-    actions: ["Apply OS Patch", "Enable Kernel Isolation"],
-    timeRequired: 18,
+    correctActions: ["osPatch", "kernelIsolation"],
+    baseTime: 18,
   },
   {
     id: 2,
@@ -16,8 +27,8 @@ const SYSTEMS = [
     risk: "Critical",
     riskLevel: 4,
     description: "Stores encrypted customer records. Speculative execution can bypass encryption.",
-    actions: ["Kernel Isolation", "Deploy Monitoring"],
-    timeRequired: 20,
+    correctActions: ["kernelIsolation", "osPatch"],
+    baseTime: 20,
   },
   {
     id: 3,
@@ -25,8 +36,8 @@ const SYSTEMS = [
     risk: "High",
     riskLevel: 3,
     description: "Patient data protected by HIPAA. A breach carries legal and human consequences.",
-    actions: ["Apply OS Patch", "Deploy Monitoring"],
-    timeRequired: 14,
+    correctActions: ["osPatch", "kernelIsolation"],
+    baseTime: 14,
   },
   {
     id: 4,
@@ -34,8 +45,8 @@ const SYSTEMS = [
     risk: "High",
     riskLevel: 3,
     description: "Public-facing services with citizen data. Privileged kernel access is a vector.",
-    actions: ["Apply OS Patch", "Enable Kernel Isolation"],
-    timeRequired: 16,
+    correctActions: ["osPatch", "kernelIsolation"],
+    baseTime: 16,
   },
   {
     id: 5,
@@ -43,12 +54,10 @@ const SYSTEMS = [
     risk: "Medium",
     riskLevel: 2,
     description: "JavaScript can exploit Spectre through high-resolution timers in the browser.",
-    actions: ["Browser Update", "Deploy Monitoring"],
-    timeRequired: 10,
+    correctActions: ["browserUpdate"],
+    baseTime: 10,
   },
 ];
-
-const TOTAL_TIME = 90; // seconds
 
 function getRiskClass(risk) {
   if (risk === "Critical") return "risk-critical";
@@ -56,28 +65,93 @@ function getRiskClass(risk) {
   return "risk-medium";
 }
 
-function getOutcome(systems) {
-  const patched = systems.filter((s) => s.patched);
-  const criticalPatched = patched.filter((s) => s.riskLevel >= 4).length;
-  const totalCritical = systems.filter((s) => s.riskLevel >= 4).length;
+// How long an action takes on a given system.
+function getActionTime(system, actionId) {
+  if (actionId === "ignore") return 3;
+  if (actionId === "monitoring") return Math.round(system.baseTime * 0.5);
+  return system.baseTime; // full effort whether the patch is right or wrong for this system
+}
 
-  if (criticalPatched === totalCritical && patched.length === systems.length) {
-    return { type: "secure", label: "Secure Infrastructure", color: "var(--green)" };
+// What state the system ends up in once the action finishes.
+function getActionResult(system, actionId) {
+  if (actionId === "ignore") return "ignored";
+  if (actionId === "monitoring") return "monitored";
+  if (system.correctActions.includes(actionId)) return "secured";
+  return "wasted"; // wrong patch for this system — time spent, nothing gained
+}
+
+const STATUS_META = {
+  vulnerable: { chip: "chip-vulnerable", label: "Vulnerable" },
+  busy: { chip: "chip-busy", label: "Working…" },
+  secured: { chip: "chip-secured", label: "Secured" },
+  monitored: { chip: "chip-monitored", label: "Monitored (Partial)" },
+  wasted: { chip: "chip-wasted", label: "Misapplied Patch" },
+  ignored: { chip: "chip-ignored", label: "Ignored" },
+};
+
+const EXPOSED_STATUSES = new Set(["vulnerable", "busy", "ignored", "wasted"]);
+
+function getOutcome(systems) {
+  const critical = systems.filter((s) => s.riskLevel >= 4);
+  const criticalExposed = critical.some((s) => EXPOSED_STATUSES.has(s.status));
+  const criticalSecured = critical.every((s) => s.status === "secured");
+  const allFullySecured = systems.every((s) => s.status === "secured");
+  const allAtLeastMitigated = systems.every(
+    (s) => s.status === "secured" || s.status === "monitored"
+  );
+
+  if (criticalExposed) {
+    return {
+      type: "incident",
+      label: "Major Security Incident",
+      color: "var(--red)",
+      detail:
+        "One or more critical systems were left exposed. Attackers had a clear path to sensitive data.",
+    };
   }
-  if (criticalPatched === totalCritical) {
-    return { type: "partial", label: "Partial Breach", color: "var(--amber)" };
+
+  if (criticalSecured && allFullySecured) {
+    return {
+      type: "secure",
+      label: "Secure Infrastructure",
+      color: "var(--green)",
+      detail: "Every system was fully patched before the deadline. No exploitable surface remained.",
+    };
   }
-  return { type: "incident", label: "Major Security Incident", color: "var(--red)" };
+
+  if (criticalSecured && allAtLeastMitigated) {
+    return {
+      type: "secure",
+      label: "Secure Infrastructure",
+      color: "var(--green)",
+      detail: "Critical systems were fully patched and the rest were at least monitored.",
+    };
+  }
+
+  return {
+    type: "partial",
+    label: "Partial Breach",
+    color: "var(--amber)",
+    detail:
+      "Critical systems held, but some systems were missed, misconfigured, or only partially covered.",
+  };
+}
+
+function freshSystems() {
+  return SYSTEMS.map((s) => ({ ...s, status: "vulnerable", activeAction: null, progress: 0 }));
 }
 
 export default function PatchMemoryLeak() {
-  const [systems, setSystems] = useState(SYSTEMS.map((s) => ({ ...s, patched: false, patching: false, progress: 0 })));
+  const [systems, setSystems] = useState(freshSystems);
   const [timeLeft, setTimeLeft] = useState(TOTAL_TIME);
   const [gameOver, setGameOver] = useState(false);
   const [outcome, setOutcome] = useState(null);
-  const [selectedAction, setSelectedAction] = useState({});
+  const [blockedMessage, setBlockedMessage] = useState("");
   const timerRef = useRef(null);
-  const patchTimers = useRef({});
+  const actionTimers = useRef({});
+  const systemsRef = useRef(systems);
+
+  systemsRef.current = systems;
 
   useEffect(() => {
     timerRef.current = setInterval(() => {
@@ -90,45 +164,67 @@ export default function PatchMemoryLeak() {
         return t - 1;
       });
     }, 1000);
-    return () => clearInterval(timerRef.current);
+    return () => {
+      clearInterval(timerRef.current);
+      Object.values(actionTimers.current).forEach(clearInterval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function endGame() {
     setGameOver(true);
-    setSystems((prev) => {
-      setOutcome(getOutcome(prev));
-      return prev;
-    });
-    Object.values(patchTimers.current).forEach(clearInterval);
+    Object.values(actionTimers.current).forEach(clearInterval);
+    actionTimers.current = {};
+    setOutcome(getOutcome(systemsRef.current));
   }
 
-  function startPatch(systemId) {
+  function busyCount(list) {
+    return list.filter((s) => s.status === "busy").length;
+  }
+
+  function startAction(systemId, actionId) {
     if (gameOver) return;
     const sys = systems.find((s) => s.id === systemId);
-    if (!sys || sys.patched || sys.patching) return;
+    if (!sys || sys.status === "secured" || sys.status === "busy") return;
+    if (busyCount(systems) >= MAX_CONCURRENT) {
+      setBlockedMessage("All available engineers are busy. Wait for a task to finish.");
+      window.setTimeout(() => setBlockedMessage(""), 2200);
+      return;
+    }
 
+    setBlockedMessage("");
     setSystems((prev) =>
-      prev.map((s) => (s.id === systemId ? { ...s, patching: true, progress: 0 } : s))
+      prev.map((s) =>
+        s.id === systemId ? { ...s, status: "busy", activeAction: actionId, progress: 0 } : s
+      )
     );
 
-    const duration = sys.timeRequired * 1000;
-    const interval = 200;
-    const steps = duration / interval;
+    const duration = getActionTime(sys, actionId) * 1000;
+    const interval = 150;
+    const steps = Math.max(1, Math.round(duration / interval));
     let step = 0;
 
-    patchTimers.current[systemId] = setInterval(() => {
-      step++;
+    actionTimers.current[systemId] = setInterval(() => {
+      step += 1;
       const progress = Math.min(100, Math.round((step / steps) * 100));
       setSystems((prev) =>
         prev.map((s) => (s.id === systemId ? { ...s, progress } : s))
       );
+
       if (step >= steps) {
-        clearInterval(patchTimers.current[systemId]);
+        clearInterval(actionTimers.current[systemId]);
+        delete actionTimers.current[systemId];
+
         setSystems((prev) => {
           const updated = prev.map((s) =>
-            s.id === systemId ? { ...s, patched: true, patching: false, progress: 100 } : s
+            s.id === systemId
+              ? { ...s, status: getActionResult(sys, actionId), activeAction: null, progress: 100 }
+              : s
           );
-          if (updated.every((s) => s.patched)) endGame();
+          if (updated.every((s) => s.status === "secured")) {
+            // Perfect run — no need to wait out the clock.
+            window.setTimeout(endGame, 0);
+          }
           return updated;
         });
       }
@@ -137,16 +233,20 @@ export default function PatchMemoryLeak() {
 
   function reset() {
     clearInterval(timerRef.current);
-    Object.values(patchTimers.current).forEach(clearInterval);
-    patchTimers.current = {};
-    setSystems(SYSTEMS.map((s) => ({ ...s, patched: false, patching: false, progress: 0 })));
+    Object.values(actionTimers.current).forEach(clearInterval);
+    actionTimers.current = {};
+    setSystems(freshSystems());
     setTimeLeft(TOTAL_TIME);
     setGameOver(false);
     setOutcome(null);
-    setSelectedAction({});
+    setBlockedMessage("");
     timerRef.current = setInterval(() => {
       setTimeLeft((t) => {
-        if (t <= 1) { clearInterval(timerRef.current); endGame(); return 0; }
+        if (t <= 1) {
+          clearInterval(timerRef.current);
+          endGame();
+          return 0;
+        }
         return t - 1;
       });
     }, 1000);
@@ -154,7 +254,8 @@ export default function PatchMemoryLeak() {
 
   const mm = String(Math.floor(timeLeft / 60)).padStart(2, "0");
   const ss = String(timeLeft % 60).padStart(2, "0");
-  const patchedCount = systems.filter((s) => s.patched).length;
+  const securedCount = systems.filter((s) => s.status === "secured").length;
+  const activeEngineers = busyCount(systems);
 
   return (
     <section className="patch-game">
@@ -168,39 +269,46 @@ export default function PatchMemoryLeak() {
 
         <div className="status-bar">
           <div className="stat">
-            Secured: <span style={{ color: "var(--green)" }}>{patchedCount} / {systems.length}</span>
+            Secured: <span style={{ color: "var(--green)" }}>{securedCount} / {systems.length}</span>
           </div>
           <div className="stat">
             Time: <span style={{ color: timeLeft < 20 ? "var(--red)" : "var(--amber)" }}>{mm}:{ss}</span>
           </div>
           <div className="stat">
+            Engineers: <span style={{ color: activeEngineers >= MAX_CONCURRENT ? "var(--red)" : "var(--amber)" }}>
+              {activeEngineers} / {MAX_CONCURRENT} active
+            </span>
+          </div>
+          <div className="stat">
             Critical: <span style={{ color: "var(--red)" }}>
-              {systems.filter((s) => s.riskLevel >= 4 && s.patched).length} / {systems.filter((s) => s.riskLevel >= 4).length} patched
+              {systems.filter((s) => s.riskLevel >= 4 && s.status === "secured").length} / {systems.filter((s) => s.riskLevel >= 4).length} patched
             </span>
           </div>
         </div>
 
+        {blockedMessage && <div className="blocked-banner">{blockedMessage}</div>}
+
         <div className="systems-list">
           {systems.map((sys) => {
-            const action = selectedAction[sys.id] || sys.actions[0];
+            const meta = STATUS_META[sys.status];
+            const locked = gameOver || sys.status === "secured" || sys.status === "busy";
+            const capacityFull = busyCount(systems) >= MAX_CONCURRENT;
+
             return (
-              <div key={sys.id} className={`system-row ${sys.patched ? "patched" : sys.patching ? "patching" : ""}`}>
+              <div key={sys.id} className={`system-row status-${sys.status}`}>
                 <div className="row-info">
                   <div className="row-top">
-                    <span className={`chip ${sys.patched ? "chip-patched" : "chip-vulnerable"}`}>
-                      {sys.patched ? "Secured" : sys.patching ? "Patching…" : "Vulnerable"}
+                    <span className={`chip ${meta.chip}`}>
+                      {sys.status === "busy"
+                        ? `Working: ${ACTIONS.find((a) => a.id === sys.activeAction)?.short ?? ""}`
+                        : meta.label}
                     </span>
                     <span className={`risk-tag ${getRiskClass(sys.risk)}`}>{sys.risk} Risk</span>
                   </div>
                   <div className="sys-name">{sys.name}</div>
                   <div className="sys-desc">{sys.description}</div>
-                  <div className="vuln-bar-track">
-                    <div
-                      className={`vuln-bar-fill ${sys.patched ? "fill-green" : getRiskClass(sys.risk).replace("risk-", "fill-")}`}
-                      style={{ width: sys.patched ? "0%" : `${70 + sys.riskLevel * 6}%` }}
-                    />
-                  </div>
-                  {sys.patching && (
+
+                  {sys.status === "busy" && (
                     <div className="progress-track">
                       <div className="progress-fill" style={{ width: `${sys.progress}%` }} />
                       <span className="progress-label">{sys.progress}%</span>
@@ -209,32 +317,18 @@ export default function PatchMemoryLeak() {
                 </div>
 
                 <div className="row-actions">
-                  {!sys.patched && !sys.patching ? (
-                    <>
-                      <select
-                        className="action-select"
-                        value={action}
-                        onChange={(e) => setSelectedAction((prev) => ({ ...prev, [sys.id]: e.target.value }))}
-                        disabled={gameOver}
-                      >
-                        {sys.actions.map((a) => (
-                          <option key={a} value={a}>{a}</option>
-                        ))}
-                        <option value="Ignore Risk">Ignore Risk</option>
-                      </select>
-                      <button
-                        className="patch-btn"
-                        onClick={() => action !== "Ignore Risk" && startPatch(sys.id)}
-                        disabled={gameOver || action === "Ignore Risk"}
-                      >
-                        {action === "Ignore Risk" ? "Skipped" : "Deploy"}
-                      </button>
-                    </>
-                  ) : (
-                    <div className="row-actions-status">
-                      {sys.patched ? "No action needed" : "In progress…"}
-                    </div>
-                  )}
+                  {ACTIONS.map((action) => (
+                    <button
+                      key={action.id}
+                      className={`action-btn action-${action.id}`}
+                      onClick={() => startAction(sys.id, action.id)}
+                      disabled={locked || (capacityFull && sys.status !== "busy")}
+                      title={`${action.label} — ${getActionTime(sys, action.id)}s`}
+                    >
+                      <span>{action.short}</span>
+                      <em>{getActionTime(sys, action.id)}s</em>
+                    </button>
+                  ))}
                 </div>
               </div>
             );
@@ -244,20 +338,16 @@ export default function PatchMemoryLeak() {
         {gameOver && outcome && (
           <div className={`outcome-banner ${outcome.type}`}>
             <div className="outcome-label" style={{ color: outcome.color }}>{outcome.label}</div>
-            <div className="outcome-detail">
-              {outcome.type === "secure" && "All systems patched before the deadline. Critical infrastructure protected."}
-              {outcome.type === "partial" && "Critical systems secured, but some remain exposed. Partial breach likely."}
-              {outcome.type === "incident" && "Critical systems left unpatched. Major security incident in progress."}
-            </div>
+            <div className="outcome-detail">{outcome.detail}</div>
             <button className="reset-btn" onClick={reset}>Try Again</button>
           </div>
         )}
 
         <footer>
           <span>
-            Each patch takes real time. Prioritize by risk level — critical systems first.
-            <br />
-            Ignoring a system leaves it fully exposed to Spectre and Meltdown exploits.
+            Only {MAX_CONCURRENT} engineers are available at once, and every action — even ignoring a
+            system — takes time. Choose the right patch for each system: the wrong one wastes your window,
+            monitoring only partially covers the risk, and ignoring a critical system invites a major incident.
           </span>
         </footer>
       </div>
@@ -267,6 +357,7 @@ export default function PatchMemoryLeak() {
           --green: #25f39a;
           --red: #ff3c55;
           --amber: #f6b73c;
+          --cyan: #54c7ff;
           --panel: #101723;
           --line: #243348;
           --text: #f4f7fb;
@@ -334,7 +425,18 @@ export default function PatchMemoryLeak() {
           color: var(--muted);
         }
 
-        /* ── SYSTEMS LIST (row layout, replaces the old cramped grid) ── */
+        .blocked-banner {
+          background: rgba(255, 60, 85, 0.1);
+          border-bottom: 1px solid var(--line);
+          color: var(--red);
+          font-family: "Courier New", monospace;
+          font-size: 0.72rem;
+          letter-spacing: 0.04em;
+          padding: 10px 22px;
+          text-transform: uppercase;
+        }
+
+        /* ── SYSTEMS LIST ── */
         .systems-list {
           display: flex;
           flex-direction: column;
@@ -342,7 +444,7 @@ export default function PatchMemoryLeak() {
 
         .system-row {
           display: grid;
-          grid-template-columns: 1fr 200px;
+          grid-template-columns: minmax(0, 1fr) 210px;
           gap: 1.5rem;
           align-items: center;
           padding: 1.25rem 22px;
@@ -352,8 +454,11 @@ export default function PatchMemoryLeak() {
         }
 
         .system-row:last-child { border-bottom: none; }
-        .system-row.patched { background: rgba(37,243,154,0.04); }
-        .system-row.patching { background: rgba(246,183,60,0.04); }
+        .system-row.status-secured { background: rgba(37,243,154,0.04); }
+        .system-row.status-busy { background: rgba(246,183,60,0.04); }
+        .system-row.status-monitored { background: rgba(84,199,255,0.04); }
+        .system-row.status-wasted { background: rgba(255,60,85,0.03); }
+        .system-row.status-ignored { background: rgba(255,60,85,0.05); }
 
         .row-info {
           display: grid;
@@ -379,7 +484,11 @@ export default function PatchMemoryLeak() {
         }
 
         .chip-vulnerable { background: rgba(255,60,85,0.18); color: var(--red); }
-        .chip-patched { background: rgba(37,243,154,0.12); color: var(--green); }
+        .chip-busy { background: rgba(246,183,60,0.18); color: var(--amber); }
+        .chip-secured { background: rgba(37,243,154,0.12); color: var(--green); }
+        .chip-monitored { background: rgba(84,199,255,0.16); color: var(--cyan); }
+        .chip-wasted { background: rgba(255,60,85,0.14); color: var(--red); }
+        .chip-ignored { background: rgba(139,160,186,0.16); color: var(--muted); }
 
         .risk-tag {
           font-family: "Courier New", monospace;
@@ -407,22 +516,6 @@ export default function PatchMemoryLeak() {
           max-width: 60ch;
         }
 
-        .vuln-bar-track {
-          height: 3px;
-          background: rgba(255,255,255,0.07);
-          margin-top: 2px;
-        }
-
-        .vuln-bar-fill {
-          height: 100%;
-          transition: width 0.4s;
-        }
-
-        .fill-critical { background: var(--red); }
-        .fill-high { background: var(--amber); }
-        .fill-medium { background: #8edfff; }
-        .fill-green { background: var(--green); }
-
         .progress-track {
           height: 6px;
           background: rgba(255,255,255,0.07);
@@ -434,7 +527,7 @@ export default function PatchMemoryLeak() {
         .progress-fill {
           height: 100%;
           background: var(--amber);
-          transition: width 0.2s;
+          transition: width 0.15s;
         }
 
         .progress-label {
@@ -447,48 +540,58 @@ export default function PatchMemoryLeak() {
         }
 
         .row-actions {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 6px;
+          min-width: 0;
+          width: 100%;
+          justify-self: start;
+        }
+
+        .action-btn {
           display: flex;
-          flex-direction: column;
-          gap: 8px;
+          align-items: center;
+          justify-content: space-between;
+          gap: 6px;
+          min-width: 0;
+          width: 100%;
+          font-family: "Courier New", monospace;
+          font-size: 0.58rem;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+          padding: 6px 7px;
+          border: 1px solid var(--line);
+          background: rgba(0,0,0,0.25);
+          color: var(--text);
+          cursor: pointer;
+          transition: all 0.15s;
+          white-space: nowrap;
+          overflow: hidden;
+        }
+
+        .action-btn span {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
           min-width: 0;
         }
 
-        .row-actions-status {
-          font-family: "Courier New", monospace;
-          font-size: 0.7rem;
+        .action-btn em {
+          flex-shrink: 0;
+        }
+
+        .action-btn em {
+          font-style: normal;
           color: var(--muted);
-          text-align: right;
+          font-size: 0.56rem;
         }
 
-        .action-select {
-          width: 100%;
-          background: rgba(0,0,0,0.3);
-          border: 1px solid var(--line);
-          color: var(--text);
-          font-family: "Courier New", monospace;
-          font-size: 0.65rem;
-          padding: 7px 8px;
-          cursor: pointer;
-        }
-
-        .patch-btn {
-          width: 100%;
-          font-family: "Courier New", monospace;
-          font-size: 0.65rem;
-          font-weight: 700;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          padding: 7px 10px;
-          border: 1px solid var(--green);
-          background: transparent;
-          color: var(--green);
-          cursor: pointer;
-          transition: all 0.2s;
-          white-space: nowrap;
-        }
-
-        .patch-btn:hover:not(:disabled) { background: var(--green); color: #070b10; }
-        .patch-btn:disabled { opacity: 0.4; cursor: default; border-color: var(--line); color: var(--muted); }
+        .action-btn:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+        .action-btn:hover:not(:disabled) em { color: var(--green); }
+        .action-btn.action-ignore:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+        .action-btn.action-ignore:hover:not(:disabled) em { color: var(--red); }
+        .action-btn:disabled { opacity: 0.35; cursor: default; }
 
         .outcome-banner {
           padding: 2rem 22px;
@@ -532,15 +635,20 @@ export default function PatchMemoryLeak() {
             grid-template-columns: 1fr;
             gap: 1rem;
           }
-          .row-actions-status { text-align: left; }
+          .row-actions {
+            grid-template-columns: repeat(2, 1fr);
+          }
         }
 
         @media (max-width: 480px) {
-          .game-frame header, .game-frame footer, .status-bar, .system-row, .outcome-banner {
+          .game-frame header, .game-frame footer, .status-bar, .system-row, .outcome-banner, .blocked-banner {
             padding-left: 16px;
             padding-right: 16px;
           }
           .status-bar { gap: 1rem; }
+          .row-actions {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
     </section>
