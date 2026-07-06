@@ -161,39 +161,74 @@ Potentially affected:
 
 ## II. Interactive Components (Updated)
 
-### 1. *Interactive Simulation – "The Hidden Password Leak"* (Updated)
+### 1. Interactive Simulation: The Hidden Password Leak
 
-**Concept:** Demonstrates how sensitive data can remain hidden from the user interface but still be exposed through cache side-channel attacks.
+**Concept:**  
+This simulation shows how a password can remain hidden in the normal user interface while still being reconstructed through cache timing clues.
 
 **Gameplay:**
 
-The user sees:
-
-Password: ************
-
-The system appears secure.
-
-A button labeled: "View as Attacker" switches perspectives.
-
-The attacker view displays a cache-monitoring panel.
-
-As the user triggers memory accesses, portions of the password gradually become visible:
-- P***********
-- Pa**********
-- Pas*********
-- Pass********
-
-until the entire password is reconstructed.
+- The user first sees a masked password field, such as `********`.
+- The player switches to "View as Attacker".
+- The attacker dashboard displays a probe-array timing table.
+- Each round starts by clicking "Trigger Memory Access".
+- The player must identify the probe address with the lowest cycle count.
+- Correct choices reveal one character of the password reconstruction buffer.
+- Wrong choices increase detection risk.
+- The simulation ends when the full password is reconstructed or detection risk reaches 100%.
 
 **What it teaches:**
-- Difference between displayed data and stored data
-- Cache side-channel attacks
-- Why Spectre and Meltdown were dangerous
-- Information leakage without directly reading memory
+
+- Masked interface data is not the same as inaccessible data
+- Cache timing can reveal information without directly displaying memory
+- Fast cache hits can act as clues for side-channel attacks
+- Security monitoring can detect repeated suspicious probing
+
+---
+
+### 2. Interactive Game: Speculative Execution Lab
+
+**Concept:**  
+This game turns the player into the CPU. Each round presents a branch instruction, prediction confidence, data sensitivity, and branch history. The player must balance performance against the risk of leaving cache traces behind.
+
+**Gameplay:**
+
+- The game runs through 10 randomized instruction rounds.
+- Each round shows an instruction card with branch history, prediction, confidence, data type, and base risk.
+- The player chooses one of four CPU behaviors:
+  - Wait for Check
+  - Speculate
+  - Speculate + Flush
+  - Insert Fence
+- Speculation can save cycles and increase performance, but risky speculation can raise cache trace risk.
+- Waiting, flushing, and fencing reduce risk but spend more of the cycle budget.
+- The run ends when all rounds are cleared, cache trace risk reaches 100%, or the cycle budget reaches 0.
+
+**Outcome states:**
+
+- Complete
+- Cache Leak
+- Budget Exhausted
+
+**Possible verdicts:**
+
+- Balanced CPU Behavior
+- High Performance, Moderate Risk
+- Secure but Slow
+- Risky Optimization
+- Speculative Leak
+- Over-Serialized Pipeline
+
+**What it teaches:**
+
+- Speculative execution improves performance but can leave observable side effects
+- Discarded speculative results do not necessarily erase cache traces
+- Sensitive or protected data requires more cautious CPU behavior
+- Mitigations such as waiting, flushing, and fencing have performance costs
   
 ---
 
-### 2. *Interactive Game – "Patch the Memory Leak"* (Updated)
+### 3. *Interactive Game – "Patch the Memory Leak"* (Updated)
 
 **Concept:** You are a cybersecurity engineer responding to the disclosure of Spectre and Meltdown. Your goal is to secure critical systems before attackers steal sensitive data.
 
