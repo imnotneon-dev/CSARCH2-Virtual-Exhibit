@@ -147,6 +147,7 @@ export default function PatchMemoryLeak() {
   const [gameOver, setGameOver] = useState(false);
   const [outcome, setOutcome] = useState(null);
   const [blockedMessage, setBlockedMessage] = useState("");
+  const [started, setStarted] = useState(false);
   const timerRef = useRef(null);
   const actionTimers = useRef({});
   const systemsRef = useRef(systems);
@@ -154,6 +155,8 @@ export default function PatchMemoryLeak() {
   systemsRef.current = systems;
 
   useEffect(() => {
+    if (!started) return undefined;
+
     timerRef.current = setInterval(() => {
       setTimeLeft((t) => {
         if (t <= 1) {
@@ -164,12 +167,20 @@ export default function PatchMemoryLeak() {
         return t - 1;
       });
     }, 1000);
+
+    return () => clearInterval(timerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started]);
+
+  useEffect(() => {
     return () => {
-      clearInterval(timerRef.current);
       Object.values(actionTimers.current).forEach(clearInterval);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function startGame() {
+    setStarted(true);
+  }
 
   function endGame() {
     setGameOver(true);
@@ -183,7 +194,7 @@ export default function PatchMemoryLeak() {
   }
 
   function startAction(systemId, actionId) {
-    if (gameOver) return;
+    if (!started || gameOver) return;
     const sys = systems.find((s) => s.id === systemId);
     if (!sys || sys.status === "secured" || sys.status === "busy") return;
     if (busyCount(systems) >= MAX_CONCURRENT) {
@@ -260,6 +271,74 @@ export default function PatchMemoryLeak() {
   return (
     <section className="patch-game">
       <div className="game-frame">
+        {!started ? (
+          <div className="briefing">
+            <header>
+              <strong>Incident Response Console — Jan 3, 2018</strong>
+              <span className="watch">Standby</span>
+            </header>
+
+            <div className="briefing-body">
+              <p className="eyebrow">Mission Briefing</p>
+              <h3 className="briefing-title">Patch the Memory Leak</h3>
+              <p className="briefing-lede">
+                You're a cybersecurity engineer on January 3, 2018 — the day Spectre and Meltdown went
+                public. Five systems are exposed to speculative-execution side-channel attacks. Secure as
+                many as you can before the window closes.
+              </p>
+
+              <div className="brief-grid">
+                <div className="brief-block">
+                  <span className="brief-block-label">How To Play</span>
+                  <ol className="brief-steps">
+                    <li>You have <strong>{MAX_CONCURRENT} engineers</strong> and <strong>{TOTAL_TIME} seconds</strong> — only {MAX_CONCURRENT} systems can be worked on at once.</li>
+                    <li>Pick an action for each vulnerable system. Every action costs time, shown on its button.</li>
+                    <li>The right patch fully secures a system. The wrong one wastes the time and leaves it exposed.</li>
+                    <li>Monitoring is faster but only ever partial — it never fully secures a system.</li>
+                    <li>Ignoring a system is nearly instant, but leaves it fully vulnerable.</li>
+                    <li>Keep every critical system secured to end with a Secure Infrastructure result.</li>
+                  </ol>
+                </div>
+
+                <div className="brief-block">
+                  <span className="brief-block-label">Your Options, Per System</span>
+                  <ul className="brief-actions">
+                    <li>
+                      <strong>Apply OS Patch</strong>
+                      <span>Correct fix for most server-side kernel vulnerabilities.</span>
+                    </li>
+                    <li>
+                      <strong>Install Browser Update</strong>
+                      <span>Correct fix for browser-based Spectre exploits.</span>
+                    </li>
+                    <li>
+                      <strong>Enable Kernel Isolation</strong>
+                      <span>Correct fix for kernel-boundary leaks on servers.</span>
+                    </li>
+                    <li>
+                      <strong>Deploy Security Monitoring</strong>
+                      <span>Quick partial coverage — reduces exposure without fully patching.</span>
+                    </li>
+                    <li>
+                      <strong>Ignore Risk</strong>
+                      <span>Costs almost no time, but leaves the system fully exposed.</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <p className="briefing-hint">
+                No two systems share the exact same fix. Match the patch to the vulnerability — guessing
+                wrong burns your window just as fast as guessing right.
+              </p>
+
+              <button className="start-btn" onClick={startGame}>
+                Start Incident Response
+              </button>
+            </div>
+          </div>
+        ) : (
+        <>
         <header>
           <strong>Incident Response Console — Jan 3, 2018</strong>
           <span className={timeLeft < 20 ? "alert" : "watch"}>
@@ -350,6 +429,8 @@ export default function PatchMemoryLeak() {
             monitoring only partially covers the risk, and ignoring a critical system invites a major incident.
           </span>
         </footer>
+        </>
+        )}
       </div>
 
       <style>{`
@@ -629,6 +710,134 @@ export default function PatchMemoryLeak() {
         }
 
         .reset-btn:hover { border-color: var(--green); color: var(--green); }
+
+        /* ── BRIEFING SCREEN ── */
+        .briefing-body {
+          padding: 26px 22px 30px;
+        }
+
+        .briefing .eyebrow {
+          color: var(--green);
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.7rem;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          margin: 0 0 8px;
+          text-transform: uppercase;
+        }
+
+        .briefing-title {
+          font-size: clamp(1.3rem, 3vw, 1.7rem);
+          font-weight: 700;
+          margin: 0 0 14px;
+        }
+
+        .briefing-lede {
+          color: var(--muted);
+          font-size: 0.92rem;
+          line-height: 1.7;
+          margin: 0 0 26px;
+          max-width: 68ch;
+        }
+
+        .brief-grid {
+          display: grid;
+          grid-template-columns: 1.1fr 1fr;
+          gap: 24px;
+          margin-bottom: 24px;
+        }
+
+        .brief-block-label {
+          color: var(--amber);
+          display: block;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.66rem;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+          margin-bottom: 12px;
+          text-transform: uppercase;
+        }
+
+        .brief-steps {
+          display: grid;
+          gap: 10px;
+          margin: 0;
+          padding-left: 20px;
+        }
+
+        .brief-steps li {
+          color: var(--muted);
+          font-size: 0.85rem;
+          line-height: 1.55;
+        }
+
+        .brief-steps strong {
+          color: var(--text);
+        }
+
+        .brief-actions {
+          display: grid;
+          gap: 10px;
+          list-style: none;
+          margin: 0;
+          padding: 0;
+        }
+
+        .brief-actions li {
+          border: 1px solid rgba(139, 160, 186, 0.18);
+          display: grid;
+          gap: 4px;
+          padding: 10px 12px;
+        }
+
+        .brief-actions strong {
+          color: var(--text);
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.76rem;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+        }
+
+        .brief-actions span {
+          color: var(--muted);
+          font-size: 0.8rem;
+          line-height: 1.45;
+        }
+
+        .briefing-hint {
+          background: rgba(246, 183, 60, 0.07);
+          border-left: 2px solid var(--amber);
+          color: #dbe7f5;
+          font-size: 0.84rem;
+          line-height: 1.6;
+          margin: 0 0 26px;
+          padding: 12px 16px;
+        }
+
+        .start-btn {
+          background: var(--green);
+          border: 1px solid var(--green);
+          color: #070b10;
+          cursor: pointer;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.82rem;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          padding: 13px 26px;
+          text-transform: uppercase;
+          transition: all 0.15s;
+        }
+
+        .start-btn:hover {
+          background: transparent;
+          color: var(--green);
+        }
+
+        @media (max-width: 720px) {
+          .brief-grid {
+            grid-template-columns: 1fr;
+          }
+        }
 
         @media (max-width: 720px) {
           .system-row {
