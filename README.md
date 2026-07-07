@@ -4,7 +4,7 @@
 <br>
 **Topic Theme:** _Spectre and Meltdown Vulnerabilities (2018)_ (Updated)
 <br>
-**GitHub Link:** https://github.com/Metthy1871/CSARCH2-Virtual-Exhibit-Proposal
+**GitHub Link:** https://github.com/Metthy1871/CSARCH2-Virtual-Exhibit
 <br>
 **Website viewing Link:** https://metthy1871.github.io/CSARCH2-Virtual-Exhibit/spectre/
 
@@ -273,7 +273,7 @@ Mobile Optimizations:
 
 # Mid-Milestone Update: Project Spectre
 
-**Deployment Link:** https://jrgo7.github.io/virtual-exhibit-template/Spectre_Vulnerability
+**Deployment Link:** https://metthy1871.github.io/CSARCH2-Virtual-Exhibit/spectre/
 
 ---
 
