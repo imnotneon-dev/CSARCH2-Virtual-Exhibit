@@ -98,7 +98,7 @@ Express will be used only if additional backend functionality becomes necessary.
 
 ### 1. *Introduction (Story Hook)* (Updated)
 
-In 2018, the digital world faced a nightmare when two security flaws were discovered in the physical chips of every computer and smartphone on Earth. These flaws are known as Spectre and Meltdown. Unlike typical viruses that can easily be deleted, there were “hardware vulnerabilities” that had existed for decades. The problem originated from a design choice to make devices faster by having chips predict the user's next action. However, this speed trick inadvertently left a backdoor for hackers to steal private information, such as passwords. Furthermore, this discovery caused a global panic because the flaw was built into the physical parts of the machines, making it nearly impossible to fix without slowing down computers everywhere. Ultimately, Spectre and Meltdown served as a powerful lesson that the rush for faster technology can create deep security risks that put the entire world’s privacy at stake.
+In 2018, the digital world faced a nightmare when two security flaws were discovered in the physical chips of every computer and smartphone on Earth. These flaws are known as Spectre and Meltdown. Unlike typical viruses that can easily be deleted, there were "hardware vulnerabilities" that had existed for decades. The problem originated from a design choice to make devices faster by having chips predict the user's next action. However, this speed trick inadvertently left a backdoor for hackers to steal private information, such as passwords. Furthermore, this discovery caused a global panic because the flaw was built into the physical parts of the machines, making it nearly impossible to fix without slowing down computers everywhere. Ultimately, Spectre and Meltdown served as a powerful lesson that the rush for faster technology can create deep security risks that put the entire world's privacy at stake.
 
 ### 2. Technical Explanation (CSARCH Core) (Updated)
 
@@ -152,7 +152,7 @@ Potentially affected:
 
 | Period | Event |
 |---|---|
-| 1995–2017 | Speculative execution becomes a standard feature in modern CPUs |
+| 1995-2017 | Speculative execution becomes a standard feature in modern CPUs |
 | Mid-2017 | Researchers privately discover Spectre and Meltdown |
 | 2018 | Major emergency patching efforts worldwide |
 | 2019 | CPU manufacturers redesign hardware to reduce future risksy |
@@ -161,7 +161,7 @@ Potentially affected:
 
 ## II. Interactive Components (Updated)
 
-### 1. *Interactive Simulation – "The Hidden Password Leak"* (Updated)
+### 1. *Interactive Simulation - "The Hidden Password Leak"* (Updated)
 
 **Concept:** Demonstrates how sensitive data can remain hidden from the user interface but still be exposed through cache side-channel attacks.
 
@@ -193,7 +193,7 @@ until the entire password is reconstructed.
   
 ---
 
-### 2. *Interactive Game – "Patch the Memory Leak"* (Updated)
+### 2. *Interactive Game - "Patch the Memory Leak"* (Updated)
 
 **Concept:** You are a cybersecurity engineer responding to the disclosure of Spectre and Meltdown. Your goal is to secure critical systems before attackers steal sensitive data.
 
@@ -220,9 +220,9 @@ Possible actions:
 Every choice consumes time.
 
 **Outcome states:**
-- Most critical systems patched→ **Secure Infrastructure** ending
-- Systems missed → **Partial Breach** ending
-- Critical systems ignored → **Major Security Incident** ending
+- Most critical systems patched - **Secure Infrastructure** ending
+- Systems missed - **Partial Breach** ending
+- Critical systems ignored - **Major Security Incident** ending
 
 **What it teaches:**
 - Real-world cybersecurity incident response
@@ -253,6 +253,69 @@ Mobile Optimizations:
 - Simplified CPU diagrams
 - Responsive timeline cards
 - Compact security dashboards
+
+---
+
+# Mid-Milestone Update: Project Spectre
+
+**Deployment Link:** https://jrgo7.github.io/virtual-exhibit-template/Spectre_Vulnerability
+
+---
+
+## What's Been Done
+- Built the full exhibit page (`Spectre_Vulnerability.mdx`) with all content sections including hero, concepts, timeline, simulation, and games
+- Implemented 4 interactive React components:
+  - `PasswordLeak.jsx` - demonstrates cache side-channel attacks by reconstructing a hidden password through timing measurements
+  - `SpeculativeExecutionLab.jsx` - CPU pipeline decision game where the player balances speed against cache trace risk
+  - `PatchMemoryLeak.jsx` - incident response game where the player patches vulnerable systems before a timer runs out
+  - `SpectreTimeline.jsx` - clickable interactive timeline covering 1995 to present
+- Applied a full CSS theme replicating a cybersecurity terminal / security operations center aesthetic
+- Configured GitHub Pages deployment via GitHub Actions (`astro.yml`)
+- Added AI disclosure and references to both the README and the exhibit page
+
+## Challenges
+- Understanding how Astro's `base` path configuration affects routing for GitHub Pages
+- Getting React components to hydrate interactively inside MDX files
+- Keeping all four components visually consistent with the shared CSS style guide
+- Resolving 404 errors caused by the `base` path prefix not being included in the local dev URL
+
+## Aha Moments
+- `client:load` is required on every React component embedded in MDX - without it, components render as static HTML with no interactivity
+- The `base` value in `astro.config.mjs` must exactly match the GitHub repo name including capitalization, otherwise all assets and routes break on deployment
+- MDX allows mixing raw HTML, Markdown, and JSX imports in the same file, which made structuring the exhibit page much more flexible than expected
+
+## What's Left for Final Submission
+- Final proofreading and accuracy check of all technical content against references
+- Mobile responsiveness testing across all four interactive components
+- Additional animations and visual polish on interactive elements
+- Final review to ensure the exhibit meets all museum template requirements before the merge
+
+---
+
+## Disclosure on the Use of AI / LLM Tools
+
+The team utilized AI tools such as **ChatGPT** and **Gemini** to help break down complex architectural concepts regarding the Spectre vulnerability during our research. Additionally, AI was used for brainstorming our UI and optimizing our CSS styling for our React components.
+
+All core content, historical analysis, and actual implementation of the interactive exhibit were executed entirely by us. AI tools were merely used to support our learning and polish the user experience.
+
+| Tool | Purpose |
+|---|---|
+| ChatGPT | Breaking down Spectre/Meltdown architectural concepts during research |
+| Gemini | UI brainstorming and React component design discussion |
+
+---
+
+## References
+
+Aktas Aydin, H. (2023). *SPECTRE: Analysis of attacks and defense mechanisms against Spectre.*
+
+Kee, W.J., Abdul Kadir, M.F., Wahab, F.A., Zakaria-Mohamad, A.H., Mohamed, M.A., & Abidin-Bharun, A.F.A. (2018). A review on Spectre attacks and Meltdown with its mitigation techniques. *International Journal of Engineering and Technology (UAE), 7*, 209-213.
+
+Lipp, M., Schwarz, M., Gruss, D., Prescher, T., Haas, W., Mangard, S., Kocher, P., Genkin, D., Yarom, Y., & Hamburg, M. (2018). *Meltdown.*
+
+Smith, A. (2003). Cache memory. 180-187.
+
+Wahab, F., Zakaria, A., Mohamed, M.A., & Abdul Kadir, M.F. (2020). Mitigating risk of Spectre and Meltdown vulnerabilities. *8*, 741-746.
 
 
 
