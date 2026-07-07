@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const TOTAL_TIME = 90; // seconds — shared countdown (the "limited time")
+const TOTAL_TIME = 90; // seconds - shared countdown (the "limited time")
 const MAX_CONCURRENT = 2; // engineers available at once (the "limited resources")
 
 const ACTIONS = [
@@ -77,7 +77,7 @@ function getActionResult(system, actionId) {
   if (actionId === "ignore") return "ignored";
   if (actionId === "monitoring") return "monitored";
   if (system.correctActions.includes(actionId)) return "secured";
-  return "wasted"; // wrong patch for this system — time spent, nothing gained
+  return "wasted"; // wrong patch for this system - time spent, nothing gained
 }
 
 const STATUS_META = {
@@ -233,7 +233,7 @@ export default function PatchMemoryLeak() {
               : s
           );
           if (updated.every((s) => s.status === "secured")) {
-            // Perfect run — no need to wait out the clock.
+            // Perfect run - no need to wait out the clock.
             window.setTimeout(endGame, 0);
           }
           return updated;
@@ -274,7 +274,7 @@ export default function PatchMemoryLeak() {
         {!started ? (
           <div className="briefing">
             <header>
-              <strong>Incident Response Console — Jan 3, 2018</strong>
+              <strong>Incident Response Console - Jan 3, 2018</strong>
               <span className="watch">Standby</span>
             </header>
 
@@ -282,7 +282,7 @@ export default function PatchMemoryLeak() {
               <p className="eyebrow">Mission Briefing</p>
               <h3 className="briefing-title">Patch the Memory Leak</h3>
               <p className="briefing-lede">
-                You're a cybersecurity engineer on January 3, 2018 — the day Spectre and Meltdown went
+                You're a cybersecurity engineer on January 3, 2018 - the day Spectre and Meltdown went
                 public. Five systems are exposed to speculative-execution side-channel attacks. Secure as
                 many as you can before the window closes.
               </p>
@@ -291,10 +291,10 @@ export default function PatchMemoryLeak() {
                 <div className="brief-block">
                   <span className="brief-block-label">How To Play</span>
                   <ol className="brief-steps">
-                    <li>You have <strong>{MAX_CONCURRENT} engineers</strong> and <strong>{TOTAL_TIME} seconds</strong> — only {MAX_CONCURRENT} systems can be worked on at once.</li>
+                    <li>You have <strong>{MAX_CONCURRENT} engineers</strong> and <strong>{TOTAL_TIME} seconds</strong> - only {MAX_CONCURRENT} systems can be worked on at once.</li>
                     <li>Pick an action for each vulnerable system. Every action costs time, shown on its button.</li>
                     <li>The right patch fully secures a system. The wrong one wastes the time and leaves it exposed.</li>
-                    <li>Monitoring is faster but only ever partial — it never fully secures a system.</li>
+                    <li>Monitoring is faster but only ever partial - it never fully secures a system.</li>
                     <li>Ignoring a system is nearly instant, but leaves it fully vulnerable.</li>
                     <li>Keep every critical system secured to end with a Secure Infrastructure result.</li>
                   </ol>
@@ -317,7 +317,7 @@ export default function PatchMemoryLeak() {
                     </li>
                     <li>
                       <strong>Deploy Security Monitoring</strong>
-                      <span>Quick partial coverage — reduces exposure without fully patching.</span>
+                      <span>Quick partial coverage - reduces exposure without fully patching.</span>
                     </li>
                     <li>
                       <strong>Ignore Risk</strong>
@@ -328,7 +328,7 @@ export default function PatchMemoryLeak() {
               </div>
 
               <p className="briefing-hint">
-                No two systems share the exact same fix. Match the patch to the vulnerability — guessing
+                No two systems share the exact same fix. Match the patch to the vulnerability - guessing
                 wrong burns your window just as fast as guessing right.
               </p>
 
@@ -340,7 +340,7 @@ export default function PatchMemoryLeak() {
         ) : (
         <>
         <header>
-          <strong>Incident Response Console — Jan 3, 2018</strong>
+          <strong>Incident Response Console - Jan 3, 2018</strong>
           <span className={timeLeft < 20 ? "alert" : "watch"}>
             {gameOver ? (outcome?.label ?? "Done") : `${mm}:${ss} remaining`}
           </span>
@@ -402,7 +402,7 @@ export default function PatchMemoryLeak() {
                       className={`action-btn action-${action.id}`}
                       onClick={() => startAction(sys.id, action.id)}
                       disabled={locked || (capacityFull && sys.status !== "busy")}
-                      title={`${action.label} — ${getActionTime(sys, action.id)}s`}
+                      title={`${action.label} - ${getActionTime(sys, action.id)}s`}
                     >
                       <span>{action.short}</span>
                       <em>{getActionTime(sys, action.id)}s</em>
@@ -424,8 +424,8 @@ export default function PatchMemoryLeak() {
 
         <footer>
           <span>
-            Only {MAX_CONCURRENT} engineers are available at once, and every action — even ignoring a
-            system — takes time. Choose the right patch for each system: the wrong one wastes your window,
+            Only {MAX_CONCURRENT} engineers are available at once, and every action - even ignoring a
+            system - takes time. Choose the right patch for each system: the wrong one wastes your window,
             monitoring only partially covers the risk, and ignoring a critical system invites a major incident.
           </span>
         </footer>
