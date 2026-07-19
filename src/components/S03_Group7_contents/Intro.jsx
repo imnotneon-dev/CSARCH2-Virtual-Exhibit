@@ -1,13 +1,14 @@
-import '../../styles/spectre.css';
+import '../../styles/S03_Group7_spectre.css';
 
 export default function Intro() {
   return (
     <>
     <div className="spectreTheme">
       <div className="alert-strip">
-        <span className="alert-tag">Critical</span>
-        <span className="alert-text">
-          VULNERABILITY DISCLOSURE — JANUARY 3, 2018 — SPECTRE (CVE-2017-5753 / CVE-2017-5715) + MELTDOWN (CVE-2017-5754) — HARDWARE-LEVEL EXPLOIT — ALL MODERN CPUs AFFECTED
+        <span className="alert-track">
+          <span className="alert-text">
+            VULNERABILITY DISCLOSURE — JANUARY 3, 2018 — SPECTRE (CVE-2017-5753 / CVE-2017-5715) + MELTDOWN (CVE-2017-5754) — HARDWARE-LEVEL EXPLOIT — ALL MODERN CPUs AFFECTED
+          </span>
         </span>
       </div>
     </div>

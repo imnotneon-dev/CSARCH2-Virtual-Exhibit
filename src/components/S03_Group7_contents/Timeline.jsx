@@ -1,4 +1,4 @@
-import '../../styles/spectre.css';
+import '../../styles/S03_Group7_spectre.css';
 
 const events = [
   {
