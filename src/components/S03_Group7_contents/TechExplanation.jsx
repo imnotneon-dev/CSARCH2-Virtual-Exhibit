@@ -1,18 +1,44 @@
 import '../../styles/S03_Group7_spectre.css';
-import { useReveal } from "./Animation.jsx";
+import { useState } from "react";
 
-function ConceptCard({ c, index }) {
-  const [ref, visible] = useReveal();
+function ConceptCard({ concept, index, isExpanded, onExpand, onCollapse }) {
+  const detailId = `concept-${concept.index.toLowerCase()}-details`;
+
   return (
-    <div
-      ref={ref}
-      className={`card ${c.variant} reveal ${visible ? "is-visible" : ""}`}
-      style={{ transitionDelay: `${index * 90}ms` }}
+    <article
+      className={`card ${concept.variant} ${isExpanded ? "is-expanded" : ""}`}
+      onMouseEnter={() => onExpand(index)}
+      onMouseLeave={() => onCollapse(index)}
     >
-      <div className="card-index">{c.index}</div>
-      <div className="card-title">{c.title}</div>
-      <div className="card-body">{c.body}</div>
-    </div>
+      <button
+        type="button"
+        className="card-trigger"
+        aria-expanded={isExpanded}
+        aria-controls={detailId}
+        onClick={() => onExpand(index)}
+        onFocus={() => onExpand(index)}
+        onBlur={() => onCollapse(index)}
+      >
+        <span className="card-index">{concept.index}</span>
+        <span className="card-heading">
+          <strong className="card-title">{concept.title}</strong>
+          <span className="card-summary">{concept.summary}</span>
+        </span>
+        <span className="card-toggle" aria-hidden="true" />
+      </button>
+
+      <div id={detailId} className="card-details" aria-hidden={!isExpanded}>
+        <div className="card-details-clip">
+          <div className="card-details-inner">
+            <div className="card-detail-copy">{concept.detail}</div>
+            <aside className="card-takeaway">
+              <span>{concept.takeawayLabel}</span>
+              <p>{concept.takeaway}</p>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -20,80 +46,82 @@ const concepts = [
   {
     index: 'A',
     title: 'Speculative Execution',
-    body: (
+    summary: 'Modern processors predict and run instructions before knowing whether those instructions are actually needed.',
+    detail: (
       <>
-        Modern processors attempt to improve performance by predicting future
-        instructions and executing them ahead of time.
-        <br /><br />
-        Example:
-        <br />
-        <code>if (userIsAuthorized) accessSecretData();</code>
-        <br /><br />
-        The CPU may temporarily execute the instruction before confirming whether the
-        user is actually authorized. Normally these speculative operations are
-        discarded — but traces remain in the CPU cache.
+        <p>
+          This shortcut keeps the processor pipeline busy instead of waiting for every
+          condition to be resolved. If the prediction is wrong, the CPU discards the
+          calculated result—but activity such as loading data into cache may have
+          already happened.
+        </p>
+        <code className="card-code">if (userIsAuthorized) accessSecretData();</code>
       </>
     ),
+    takeawayLabel: 'Security gap',
+    takeaway: 'The visible result is erased, but a measurable trace of the temporary work can remain.',
     variant: '',
   },
   {
     index: 'B',
     title: 'CPU Cache',
-    body: (
-      <>
-        A cache is a small, high-speed memory area that stores frequently used data.
-        <ul>
-          <li>Accessing cached data is significantly faster than retrieving data from main memory.</li>
-          <li>Attackers can measure timing differences to determine whether certain data was loaded into cache.</li>
-        </ul>
-      </>
+    summary: 'The cache is a small, fast memory layer that keeps recently used data close to the processor.',
+    detail: (
+      <p>
+        Cached data returns much faster than data fetched from main memory. By timing
+        many carefully chosen memory accesses, an attacker can identify which location
+        became fast and infer what the processor touched during speculative work.
+      </p>
     ),
-    variant: '',
+    takeawayLabel: 'Side channel',
+    takeaway: 'The attacker reads timing differences—not protected memory directly—and turns speed into a data signal.',
+    variant: 'card-blue',
   },
   {
     index: 'C',
     title: 'Meltdown',
-    body: (
-      <>
-        Meltdown allows an attacker to read privileged kernel memory from an
-        unprivileged application. It effectively breaks the isolation between:
-        <ul>
-          <li>User applications</li>
-          <li>Operating system memory</li>
-        </ul>
-        Potentially exposed information:
-        <ul>
-          <li>Passwords</li>
-          <li>Encryption keys</li>
-          <li>Sensitive operating system data</li>
-        </ul>
-      </>
+    summary: 'Meltdown lets an ordinary process transiently cross the boundary that protects operating-system memory.',
+    detail: (
+      <p>
+        On affected processors, a forbidden read can execute briefly before the
+        permission check stops it. The program never receives that value normally,
+        but the value can influence the cache and be reconstructed through timing,
+        exposing passwords, keys, or other kernel data.
+      </p>
     ),
+    takeawayLabel: 'Boundary broken',
+    takeaway: 'Meltdown targets the separation between a user application and privileged kernel memory.',
     variant: 'card-red',
   },
   {
     index: 'D',
     title: 'Spectre',
-    body: (
-      <>
-        Spectre tricks programs into executing instructions they normally would not
-        execute. Instead of directly bypassing permissions, it manipulates speculative
-        execution behavior to leak data through cache timing.
-        <br /><br />
-        Potentially affected:
-        <ul>
-          <li>Browsers</li>
-          <li>Applications</li>
-          <li>Virtual machines</li>
-          <li>Cloud computing environments</li>
-        </ul>
-      </>
+    summary: 'Spectre manipulates branch prediction so a victim program temporarily follows an attacker-chosen path.',
+    detail: (
+      <p>
+        Rather than directly bypassing a privilege check, Spectre trains the processor
+        to make a useful wrong prediction. The victim then touches secret-dependent
+        data during speculative execution, leaving cache traces that may leak across
+        browsers, applications, virtual machines, and cloud workloads.
+      </p>
     ),
+    takeawayLabel: 'Victim misled',
+    takeaway: 'Spectre turns a program’s own valid code into the mechanism that reveals its protected data.',
     variant: 'card-amber',
   },
 ];
 
 export default function TechExplanation() {
+  const [expandedIndex, setExpandedIndex] = useState(-1);
+
+  const expandConcept = (index) => {
+    setExpandedIndex(index);
+  };
+
+  const collapseConcept = (index) => {
+    setExpandedIndex((currentIndex) => currentIndex === index ? -1 : currentIndex);
+  };
+
   return (
     <div className="spectreTheme">
       <section className="section">
@@ -101,13 +129,20 @@ export default function TechExplanation() {
           <div className="section-label">CSARCH Core</div>
           <h2 className="section-heading">Technical Explanation</h2>
           <p className="section-body">
-            Two hardware-level flaws, two different ways of breaking the same trust
-            boundary.
+            Follow the chain from processor optimization to observable cache trace,
+            then compare the two attacks built from it.
           </p>
 
-          <div className="cards-grid">
-            {concepts.map((c, index) => (
-              <ConceptCard c={c} index={index} key={c.index} />
+          <div className="cards-grid" aria-label="Technical concept sequence">
+            {concepts.map((concept, index) => (
+              <ConceptCard
+                concept={concept}
+                index={index}
+                isExpanded={expandedIndex === index}
+                onExpand={expandConcept}
+                onCollapse={collapseConcept}
+                key={concept.index}
+              />
             ))}
           </div>
         </div>

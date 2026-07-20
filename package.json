@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@astrojs/mdx": "^7.0.0",
-    "@astrojs/react": "^4.0.0",
+    "@astrojs/react": "^5.0.7",
     "@fontsource-variable/lora": "^5.2.8",
     "@fontsource-variable/noto-sans": "^5.2.10",
     "@iconify-json/ic": "^1.2.4",

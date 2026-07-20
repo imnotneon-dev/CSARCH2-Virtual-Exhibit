@@ -433,7 +433,7 @@ export default function PatchMemoryLeak() {
         )}
       </div>
 
-      <style>{`
+      <style suppressHydrationWarning>{`
         .patch-game {
           --green: #25f39a;
           --red: #ff3c55;

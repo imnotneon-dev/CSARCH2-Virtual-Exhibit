@@ -180,6 +180,7 @@ export default function PasswordLeak() {
   const [detectionRisk, setDetectionRisk] = useState(0);
   const [probes, setProbes] = useState(() => []);
   const [roundReady, setRoundReady] = useState(false);
+  const [addressesVisible, setAddressesVisible] = useState(false);
   const [randomBuffer, setRandomBuffer] = useState(() =>
     makeMaskedBuffer(secret.length)
   );
@@ -246,6 +247,7 @@ export default function PasswordLeak() {
 
     setProbes(makeActiveProbeSet());
     setRoundReady(true);
+    setAddressesVisible(true);
     setMessage(
       "Sensitive data was accessed internally. Find the address with the shortest access time."
     );
@@ -295,6 +297,7 @@ export default function PasswordLeak() {
     setDetectionRisk(0);
     setProbes(makeProbeSet(null, generateBaseAddress()));
     setRoundReady(false);
+    setAddressesVisible(false);
     setRandomBuffer(makeMaskedBuffer(nextSecret.length));
     setMessage(INITIAL_MESSAGE);
   }
@@ -374,15 +377,16 @@ export default function PasswordLeak() {
 
               {probes.map((probe) => {
                 const width = cycleBarWidth(probe.cycles);
+                const visibleAddress = addressesVisible ? probe.address : "0x????";
                 return (
                   <button
                     key={probe.address}
                     className="probe-row"
                     disabled={!roundReady || !canPlay}
                     onClick={() => chooseProbe(probe)}
-                    aria-label={`Select probe address ${probe.address}, ${probe.cycles} cycles`}
+                    aria-label={`Select probe address ${visibleAddress}, ${probe.cycles} cycles`}
                   >
-                    <span className="address">{probe.address}</span>
+                    <span className="address">{visibleAddress}</span>
                     <span className="bar" style={{ "--fill": width }}>
                       <i />
                     </span>
@@ -426,7 +430,7 @@ export default function PasswordLeak() {
         </aside>
       )}
 
-      <style>{`
+      <style suppressHydrationWarning>{`
         .password-leak {
           --bg: #070b10;
           --panel: #101723;

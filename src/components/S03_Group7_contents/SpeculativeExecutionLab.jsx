@@ -684,7 +684,7 @@ export default function SpeculativeExecutionLab() {
         </aside>
       )}
 
-      <style>{`
+      <style suppressHydrationWarning>{`
         .spec-lab {
           --lab-columns: minmax(310px, 1fr) minmax(320px, 1fr);
           --divider: 2px;
@@ -703,13 +703,16 @@ export default function SpeculativeExecutionLab() {
         }
 
         .game-heading {
-          background-color: black;
+          background: linear-gradient(135deg, rgba(18, 27, 41, 0.92), rgba(10, 16, 25, 0.78));
+          border: 1px solid var(--line);
+          border-left: 3px solid var(--green);
+          box-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
           margin-bottom: 28px;
           padding: 20px 22px;
         }
 
         .game-heading p,
-        .eyebrow {
+        .spec-lab .eyebrow {
           color: var(--green);
           font-family: "Courier New", ui-monospace, monospace;
           font-size: 0.72rem;
@@ -717,7 +720,7 @@ export default function SpeculativeExecutionLab() {
           letter-spacing: 0.12em;
           margin: 0 0 10px;
           text-transform: uppercase;
-          background-color: black;
+          background: transparent;
         }
 
         .game-heading h2 {
@@ -733,8 +736,9 @@ export default function SpeculativeExecutionLab() {
         }
 
         .how-to-play {
-          background: black;
-          border: 1px solid rgba(37, 243, 154, 0.2);
+          background: linear-gradient(145deg, rgba(16, 23, 35, 0.88), rgba(11, 18, 28, 0.72));
+          border: 1px solid var(--line);
+          border-top-color: rgba(37, 243, 154, 0.35);
           margin-bottom: 24px;
           padding: 20px 22px;
         }

@@ -16,7 +16,6 @@ export default function Intro() {
     </div>
     <div className="spectreTheme">
       <section className="intro">
-        <div className="intro-grid-bg" />
         <div className="intro-glow" />
         <div className="intro-glow-2" />
 

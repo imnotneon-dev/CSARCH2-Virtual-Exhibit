@@ -1,0 +1,56 @@
+---
+const { title, description, author } = Astro.props.frontmatter ?? Astro.props;
+
+import 'normalize.css';
+import '@fontsource-variable/lora';
+import '@fontsource-variable/noto-sans';
+
+import '../styles/S03_Group7_spectre.css';
+import '../styles/S03_Group7_layout.css';
+
+const baseUrl = import.meta.env.BASE_URL;
+---
+
+<!doctype html>
+<html lang="en" class="s03-group7-document">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="theme-color" content="#080c11" />
+        {description && <meta name="description" content={description} />}
+        <title>{title} - CSARCH2 Virtual Exhibit</title>
+    </head>
+
+    <body class="s03-group7-site">
+        <a class="s03-skip-link" href="#overview">Skip to exhibit</a>
+
+        <header class="s03-site-header">
+            <a class="s03-brand" href="#overview" aria-label="Project Spectre overview">
+                <span aria-hidden="true">//</span>
+                <strong>Project Spectre</strong>
+            </a>
+
+            <nav class="s03-primary-nav" aria-label="Exhibit sections">
+                <a href="#overview">Overview</a>
+                <a href="#architecture">Architecture</a>
+                <a href="#timeline">Timeline</a>
+                <a href="#simulators">Simulators</a>
+                <a href="#response">Response</a>
+            </nav>
+
+            <a class="s03-museum-link" href={baseUrl} aria-label="Return to virtual exhibit homepage">
+                Museum
+            </a>
+        </header>
+
+        <main class="s03-exhibit-flow">
+            <slot />
+        </main>
+
+        <footer class="s03-site-footer">
+            <span>CSARCH2 Virtual Exhibit</span>
+            <span>{author}</span>
+        </footer>
+
+    </body>
+</html>

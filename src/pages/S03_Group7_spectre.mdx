@@ -1,7 +1,7 @@
 ---
-layout: ../layouts/ExhibitLayout.astro
+layout: ../layouts/S03_Group7_SpectreLayout.astro
 title: "Spectre and Meltdown Vulnerabilities (2018)"
-description: "A short description of your topic."
+description: "An interactive exhibit about the Spectre and Meltdown processor vulnerabilities."
 author: "Dee, Adrian Matthew; La Madrid, Elkan; Lim, Jenrick; Lopez, Kent; Marcos, Alain;"
 readingTime: "15 minutes"
 ---
@@ -13,26 +13,41 @@ import PasswordLeak from "../components/S03_Group7_contents/PasswordLeak.jsx";
 import SpeculativeExecutionLab from "../components/S03_Group7_contents/SpeculativeExecutionLab.jsx";
 import PatchMemoryLeak from "../components/S03_Group7_contents/PatchMemoryLeak.jsx";
 
-## Introduction
+<div id="overview" className="s03-exhibit-section s03-exhibit-section--hero">
+  <Intro client:load />
+</div>
 
-<Intro client:load />
+<div id="architecture" className="s03-exhibit-section s03-exhibit-section--content">
+  <TechExplanation client:visible />
+</div>
 
-## Technical Explanation
+<div id="timeline" className="s03-exhibit-section s03-exhibit-section--content">
+  <Timeline client:visible />
+</div>
 
-<TechExplanation client:visible />
+<div id="simulators" className="s03-exhibit-section s03-exhibit-section--interactive">
+  <header className="s03-section-heading">
+    <span>Side-channel simulator // 01</span>
+    <h2>Password Leak</h2>
+    <p>Observe how cache timing can expose a secret even when an application never displays it.</p>
+  </header>
+  <PasswordLeak client:visible />
+</div>
 
-## Timeline
+<div id="speculative-lab" className="s03-exhibit-section s03-exhibit-section--interactive">
+  <header className="s03-section-heading">
+    <span>Processor simulator // 02</span>
+    <h2>Speculative Execution Lab</h2>
+    <p>Balance speed, cycle cost, and cache-trace risk while handling a stream of branch instructions.</p>
+  </header>
+  <SpeculativeExecutionLab client:visible />
+</div>
 
-<Timeline client:visible />
-
-## Password Leak
-
-<PasswordLeak client:visible />
-
-## Speculative Execution Lab
-
-<SpeculativeExecutionLab client:visible />
-
-## PatchMemoryLeak
-
-<PatchMemoryLeak client:visible />
+<div id="response" className="s03-exhibit-section s03-exhibit-section--interactive">
+  <header className="s03-section-heading">
+    <span>Incident response game // 03</span>
+    <h2>Patch the Memory Leak</h2>
+    <p>Coordinate a limited response team and choose the correct mitigation for every exposed system.</p>
+  </header>
+  <PatchMemoryLeak client:visible />
+</div>
