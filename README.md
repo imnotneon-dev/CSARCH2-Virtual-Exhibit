@@ -4,13 +4,12 @@
 <br>
 **Topic Theme:** _Spectre and Meltdown Vulnerabilities (2018)_ 
 <br>
-**GitHub Link:** https://github.com/Metthy1871/CSARCH2-Virtual-Exhibit
+**GitHub Link:** https://github.com/imnotneon-dev/CSARCH2-Virtual-Exhibit
 <br>
 **Website viewing Link:** https://imnotneon-dev.github.io/CSARCH2-Virtual-Exhibit/
 
 ## Group Members
 
-- Adrian Matthew Dee
 - Alain Zuriel Marcos
 - Elkan La Madrid
 - Jenrick Lim
