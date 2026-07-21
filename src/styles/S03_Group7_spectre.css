@@ -127,6 +127,89 @@
   margin: 0 auto;
   width: 100%;
 }
+.intro-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  grid-template-areas:
+    "eyebrow visual"
+    "title visual"
+    "subtitle visual"
+    "body visual";
+  column-gap: clamp(2rem, 5vw, 4rem);
+  row-gap: 0;
+  align-items: center;
+}
+.intro-eyebrow { grid-area: eyebrow; }
+.intro-title { grid-area: title; }
+.intro-subtitle { grid-area: subtitle; }
+.intro-body { grid-area: body; }
+.intro-visual {
+  grid-area: visual;
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.chip-svg {
+  width: 100%;
+  height: 100%;
+  max-width: 440px;
+}
+.chip-die {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 1;
+  opacity: 0.7;
+}
+.chip-core {
+  fill: rgba(0,255,136,0.06);
+  stroke: var(--green);
+  stroke-width: 1;
+}
+.chip-hot {
+  fill: rgba(255,71,71,0.15);
+  stroke: var(--red);
+  stroke-width: 1;
+}
+.chip-pins {
+  stroke: var(--green);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+.chip-pulse {
+  fill: none;
+  stroke: var(--red);
+  stroke-width: 1;
+  animation: chipPulse 2.5s ease-out infinite;
+  transform-origin: 100px 100px;
+}
+@keyframes chipPulse {
+  0%   { r: 6;  opacity: 0.8; }
+  70%  { r: 18; opacity: 0; }
+  100% { r: 18; opacity: 0; }
+}
+@media (max-width: 860px) {
+  .intro-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "eyebrow"
+      "title"
+      "visual"
+      "subtitle"
+      "body";
+  }
+  .intro-visual {
+    max-width: 280px;
+    margin: 1rem auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip-pulse {
+    animation: none;
+    opacity: 0.8;
+  }
+}
 .intro-eyebrow {
   font-family: var(--font-mono);
   font-size: 0.7rem;
