@@ -301,7 +301,7 @@ Each system has one or two _correct_ actions (e.g., the Web Browser needs a Brow
 
 ### Mobile Display 
 
-![Mobile Display 1](publicFINAL_MOBILE_DISPLAY1.png)
+![Mobile Display 1](public/FINAL_MOBILE_DISPLAY1.png)
 ![Mobile Display 2](public/FINAL_MOBILE_DISPLAY2.png)
 ![Mobile Display 3](public/FINAL_MOBILE_DISPLAY3.png)
 
