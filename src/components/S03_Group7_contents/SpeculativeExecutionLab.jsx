@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const ROUND_COUNT = 10;
 const STARTING_CYCLES = 30;
+const RING_RADIUS = 52;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const END_STATUSES = new Set(["Cache Leak", "Budget Exhausted", "Complete"]);
 const INITIAL_MESSAGE =
-  "Read the instruction card, then choose how the CPU should handle the branch.";
+  "Read the instruction card, then choose how the CPU should handle the branch before the clock runs out.";
 const INITIAL_LOGS = [
   "boot: speculative execution lab online",
   "goal: finish the workload before cycles or cache risk run out",
@@ -14,6 +16,75 @@ const RESET_LOGS = [
   "boot: randomized instruction stream loaded",
   "hint: public data can often tolerate speculation",
   "hint: protected boundaries usually need waiting, flushing, or a fence",
+];
+
+const ROUND_TIME_START = 9000;
+const ROUND_TIME_STEP = 450;
+const ROUND_TIME_MIN = 4200;
+const TICK_MS = 100;
+const FAST_REACTION_RATIO = 0.6;
+
+const RULES = [
+  {
+    title: "Read the instruction card",
+    detail:
+      "See what the code does, how sensitive the data is, and how confident the branch predictor is.",
+  },
+  {
+    title: "Check the policy read",
+    detail:
+      "A plain-language take on whether this branch is actually worth speculating on.",
+  },
+  {
+    title: "Pick a player action",
+    detail:
+      "Wait, Speculate, Speculate + Flush, or Fence. Each spends cycles and risk differently.",
+  },
+  {
+    title: "Beat the clock",
+    detail:
+      "Every round gives you a shrinking window to decide. Let it run out and the CPU speculates anyway, no cleanup included.",
+  },
+  {
+    title: "Watch both gauges",
+    detail:
+      "The run ends if Cache Trace Risk hits 100%, the Cycle Budget hits 0, or all 10 rounds clear.",
+  },
+];
+
+const ACTION_GUIDE = [
+  {
+    id: "wait",
+    label: "Wait for Check",
+    tone: "tone-safe",
+    summary: "Resolve the branch condition first, then run the code once the answer is known.",
+    whenClicked:
+      "Costs about 3-4 cycles. No speculative work ever runs, so this never creates a cache trace.",
+  },
+  {
+    id: "speculate",
+    label: "Speculate",
+    tone: "tone-risk",
+    summary: "Guess the branch outcome and execute immediately, before the check resolves.",
+    whenClicked:
+      "Only 1 cycle if the guess is right. If it's wrong, the result is discarded, but it can still leave a cache trace and raise risk, especially on sensitive data.",
+  },
+  {
+    id: "flush",
+    label: "Speculate + Flush",
+    tone: "tone-mid",
+    summary: "Speculate like above, then actively clear out any leftover cache state.",
+    whenClicked:
+      "Costs 3-4 cycles either way. Cuts down the leftover trace risk from a wrong guess, but a flush is never perfectly clean.",
+  },
+  {
+    id: "fence",
+    label: "Insert Fence",
+    tone: "tone-safe",
+    summary: "Block speculation from crossing this branch at all.",
+    whenClicked:
+      "Costs 4-5 cycles, the most of any option. Cache trace risk stays at zero no matter what the predictor thinks.",
+  },
 ];
 
 const VERDICT_DETAILS = {
@@ -201,30 +272,10 @@ const SCENARIOS = [
 ];
 
 const ACTIONS = [
-  {
-    id: "wait",
-    label: "Wait for Check",
-    short: "Wait",
-    description: "Resolve the condition first, then execute.",
-  },
-  {
-    id: "speculate",
-    label: "Speculate",
-    short: "Spec",
-    description: "Predict the branch and execute early.",
-  },
-  {
-    id: "flush",
-    label: "Speculate + Flush",
-    short: "Flush",
-    description: "Speculate, then reduce leftover cache traces.",
-  },
-  {
-    id: "fence",
-    label: "Insert Fence",
-    short: "Fence",
-    description: "Prevent speculation across this boundary.",
-  },
+  { id: "wait", label: "Wait for Check", tone: "tone-safe", key: "1" },
+  { id: "speculate", label: "Speculate", tone: "tone-risk", key: "2" },
+  { id: "flush", label: "Speculate + Flush", tone: "tone-mid", key: "3" },
+  { id: "fence", label: "Insert Fence", tone: "tone-safe", key: "4" },
 ];
 
 function clamp(value, min, max) {
@@ -426,6 +477,37 @@ function getVerdict(status, score, risk, cycles) {
   return VERDICT_DETAILS.balanced;
 }
 
+function getEndMessage(status) {
+  if (status === "Complete") {
+    return "Execution completed. Workload retired before risk or cycles failed.";
+  }
+
+  if (status === "Cache Leak") {
+    return "Cache Trace Risk reached 100%. Secret data leaked through speculative side effects.";
+  }
+
+  return "Cycle budget exhausted. The CPU was too slow to complete the workload.";
+}
+
+function ringTone(percent, invert) {
+  const value = invert ? 100 - percent : percent;
+  if (value >= 70) return "ring-danger";
+  if (value >= 40) return "ring-warn";
+  return "ring-safe";
+}
+
+function getRoundTimeBudget(roundIndexZeroBased) {
+  return Math.max(
+    ROUND_TIME_MIN,
+    ROUND_TIME_START - roundIndexZeroBased * ROUND_TIME_STEP
+  );
+}
+
+// How long the numbered rule card stays open after the pointer/focus leaves it.
+// Gives people room to move from the number badge down into the detail text
+// without the reveal snapping shut mid-travel.
+const RULE_CLOSE_DELAY = 450;
+
 export default function SpeculativeExecutionLab() {
   const [deck, setDeck] = useState(createInitialDeck);
   const [roundIndex, setRoundIndex] = useState(0);
@@ -434,10 +516,43 @@ export default function SpeculativeExecutionLab() {
   const [cacheRisk, setCacheRisk] = useState(0);
   const [lastAction, setLastAction] = useState(null);
   const [message, setMessage] = useState(INITIAL_MESSAGE);
+  const [messageKey, setMessageKey] = useState(0);
   const [logs, setLogs] = useState(INITIAL_LOGS);
+  const [statusKey, setStatusKey] = useState(0);
+  const [riskPulseKey, setRiskPulseKey] = useState(0);
+  const [cyclesPulseKey, setCyclesPulseKey] = useState(0);
+  const [perfPulseKey, setPerfPulseKey] = useState(0);
+  const [selectionPulseKey, setSelectionPulseKey] = useState(0);
+  const [instructionKey, setInstructionKey] = useState(0);
+  const [resultModalStage, setResultModalStage] = useState("closed");
+  const [openRuleIndex, setOpenRuleIndex] = useState(null);
+  const ruleCloseTimeout = useRef(null);
+
+  // Gates the decision clock. The timer effect below only arms itself once
+  // this flips to true, so the round countdown never runs just because the
+  // page is open — the player has to explicitly start the lab first.
+  const [gameStarted, setGameStarted] = useState(false);
+
+  const [timeBudget, setTimeBudget] = useState(ROUND_TIME_START);
+  const [timeLeft, setTimeLeft] = useState(ROUND_TIME_START);
+  const [streak, setStreak] = useState(0);
+  const [streakPulseKey, setStreakPulseKey] = useState(0);
+  const [reactionTag, setReactionTag] = useState(null);
+  const [shaking, setShaking] = useState(false);
+  const actionTakenRef = useRef(false);
+  const timerRef = useRef(null);
+  const reactionTagTimeout = useRef(null);
 
   useEffect(() => {
     setDeck(createDeck());
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (ruleCloseTimeout.current) clearTimeout(ruleCloseTimeout.current);
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (reactionTagTimeout.current) clearTimeout(reactionTagTimeout.current);
+    };
   }, []);
 
   const currentRound = deck[roundIndex] || deck[deck.length - 1];
@@ -449,34 +564,199 @@ export default function SpeculativeExecutionLab() {
     () => getVerdict(status, performance, cacheRisk, cycles),
     [cacheRisk, cycles, performance, status]
   );
-  const riskMeterStyle = {
-    width: `${cacheRisk}%`,
-    backgroundSize: `${10000 / Math.max(cacheRisk, 1)}% 100%`,
-  };
+
+  const cyclesPercent = clamp((Math.max(0, cycles) / STARTING_CYCLES) * 100, 0, 100);
+  const cycleDashOffset =
+    RING_CIRCUMFERENCE - (RING_CIRCUMFERENCE * cyclesPercent) / 100;
+  const riskDashOffset =
+    RING_CIRCUMFERENCE - (RING_CIRCUMFERENCE * cacheRisk) / 100;
+  const cycleTone = ringTone(cyclesPercent, true);
+  const riskToneClass = ringTone(cacheRisk, false);
+  const confidence = currentRound?.confidence ?? 0;
+  const confidenceTone = confidence >= 70 ? "conf-strong" : "conf-weak";
+
+  const clockPercent = clamp((timeLeft / timeBudget) * 100, 0, 100);
+  const clockTone =
+    clockPercent <= 20 ? "clock-danger" : clockPercent <= 50 ? "clock-warn" : "clock-safe";
+  const clockSeconds = (Math.max(0, timeLeft) / 1000).toFixed(1);
+
+  const statusTone =
+    status === "Cache Leak"
+      ? "status-red"
+      : status === "Budget Exhausted"
+        ? "status-red"
+        : status === "Complete"
+          ? "status-green"
+          : status === "High Risk" || status === "Cycle Pressure"
+            ? "status-amber"
+            : "status-green";
+  const instructionText = !gameStarted
+    ? "Press Start Simulation to arm the decision clock."
+    : gameEnded
+      ? "Press Reset Lab to load a new instruction stream."
+      : `Round ${Math.min(roundIndex + 1, deck.length)} of ${deck.length} \u2014 decide before the clock hits zero.`;
+
+  useEffect(() => {
+    setStatusKey((key) => key + 1);
+  }, [status]);
+
+  useEffect(() => {
+    setInstructionKey((key) => key + 1);
+  }, [instructionText]);
+
+  useEffect(() => {
+    if (gameEnded) {
+      setResultModalStage("open");
+    }
+  }, [gameEnded]);
+
+  // Decision clock: only arms once the player has pressed Start, resets every
+  // round, ticks down, and forces a timeout resolution if the player hasn't
+  // acted before it reaches zero.
+  useEffect(() => {
+    if (gameEnded || !gameStarted) return undefined;
+
+    const budget = getRoundTimeBudget(roundIndex);
+    setTimeBudget(budget);
+    setTimeLeft(budget);
+    actionTakenRef.current = false;
+
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setTimeLeft((current) => Math.max(0, current - TICK_MS));
+    }, TICK_MS);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [roundIndex, gameEnded, gameStarted]);
+
+  useEffect(() => {
+    if (
+      gameStarted &&
+      timeLeft <= 0 &&
+      !actionTakenRef.current &&
+      !gameEnded &&
+      currentRound
+    ) {
+      handleTimeout();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeLeft]);
+
+  useEffect(() => {
+    function handleKeydown(event) {
+      if (gameEnded || !gameStarted) return;
+      const action = ACTIONS.find((candidate) => candidate.key === event.key);
+      if (action) takeAction(action.id);
+    }
+
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
+
+  function closeResultModal() {
+    setResultModalStage("closing");
+  }
 
   function pushLog(entry) {
     setLogs((current) => [entry, ...current].slice(0, 8));
   }
 
-  function takeAction(actionId) {
+  function openRuleCard(index) {
+    if (ruleCloseTimeout.current) {
+      clearTimeout(ruleCloseTimeout.current);
+      ruleCloseTimeout.current = null;
+    }
+    setOpenRuleIndex(index);
+  }
+
+  function scheduleCloseRuleCard() {
+    if (ruleCloseTimeout.current) clearTimeout(ruleCloseTimeout.current);
+    ruleCloseTimeout.current = setTimeout(() => {
+      setOpenRuleIndex(null);
+    }, RULE_CLOSE_DELAY);
+  }
+
+  function flashReaction(text) {
+    if (reactionTagTimeout.current) clearTimeout(reactionTagTimeout.current);
+    setReactionTag({ key: Date.now(), text });
+    reactionTagTimeout.current = setTimeout(() => setReactionTag(null), 1300);
+  }
+
+  function handleTimeout() {
     if (gameEnded || !currentRound) return;
+    actionTakenRef.current = true;
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    const base = evaluateAction("speculate", currentRound);
+    const extraRisk = 8 + Math.floor(Math.random() * 6);
+    const spentCycles = Math.max(1, base.cycles);
+    const nextCycles = cycles - spentCycles;
+    const addedRisk = base.risk + extraRisk;
+    const nextRisk = clamp(cacheRisk + addedRisk, 0, 100);
+    const nextRound = roundIndex + 1;
+
+    setCycles(nextCycles);
+    setCyclesPulseKey((key) => key + 1);
+    setCacheRisk(nextRisk);
+    setRiskPulseKey((key) => key + 1);
+    setLastAction("timeout");
+    setSelectionPulseKey((key) => key + 1);
+    setMessage(
+      "No decision made in time. The CPU defaulted to full speculation, and the leftover trace was worse for it."
+    );
+    setMessageKey((key) => key + 1);
+    setStreak(0);
+    setStreakPulseKey((key) => key + 1);
+    setShaking(true);
+    pushLog(
+      `round ${roundIndex + 1}: no decision (timeout) | cycles -${spentCycles} | risk +${addedRisk}%`
+    );
+
+    setRoundIndex(nextRound);
+  }
+
+  function takeAction(actionId) {
+    if (gameEnded || !gameStarted || !currentRound || actionTakenRef.current) return;
+    actionTakenRef.current = true;
+    if (timerRef.current) clearInterval(timerRef.current);
 
     const action = ACTIONS.find((candidate) => candidate.id === actionId);
     if (!action) return;
 
     const result = evaluateAction(actionId, currentRound);
+    const reactionRatio = timeBudget > 0 ? timeLeft / timeBudget : 0;
+    const fastReaction = reactionRatio > FAST_REACTION_RATIO;
+    const bonus = fastReaction ? 1 : 0;
+
     const nextCycles = cycles - result.cycles;
     const nextRisk = clamp(cacheRisk + result.risk, 0, 100);
-    const nextPerformance = performance + result.score;
+    const nextPerformance = performance + result.score + bonus;
     const nextRound = roundIndex + 1;
+    const cleanPick = result.risk === 0;
 
     setCycles(nextCycles);
+    setCyclesPulseKey((key) => key + 1);
     setCacheRisk(nextRisk);
+    setRiskPulseKey((key) => key + 1);
     setPerformance(nextPerformance);
+    setPerfPulseKey((key) => key + 1);
     setLastAction(actionId);
+    setSelectionPulseKey((key) => key + 1);
     setMessage(result.message);
+    setMessageKey((key) => key + 1);
+
+    setStreak((current) => (cleanPick ? current + 1 : 0));
+    setStreakPulseKey((key) => key + 1);
+
+    if (fastReaction) flashReaction("Fast reaction +1");
+
     pushLog(
-      `round ${roundIndex + 1}: ${action.label.toLowerCase()} | cycles -${result.cycles} | risk +${result.risk}%`
+      `round ${roundIndex + 1}: ${action.label.toLowerCase()} | cycles -${result.cycles} | risk +${result.risk}%${
+        bonus ? " | +1 fast" : ""
+      }`
     );
 
     setRoundIndex(nextRound);
@@ -490,142 +770,236 @@ export default function SpeculativeExecutionLab() {
     setCacheRisk(0);
     setLastAction(null);
     setMessage("New instruction stream loaded. Balance speed against cache trace risk.");
+    setMessageKey((key) => key + 1);
     setLogs(RESET_LOGS);
+    setResultModalStage("closed");
+    setStreak(0);
+    setReactionTag(null);
+    // Return to the standby screen rather than re-arming the clock
+    // immediately, so a fresh run always starts on the player's terms.
+    setGameStarted(false);
   }
 
   return (
-    <section className={`spec-lab ${toClassName(status)}`}>
+    <section className={`spec-lab ${toClassName(status)} ${shaking ? "is-shaking" : ""}`}>
       <div className="game-heading">
         <span>
           You are the CPU. Each round hands you one branch instruction it's
-          about to run. Decide whether to speculate on it, wait for the
-          check, flush the trace afterward, or fence it off completely.
-          Speculating is fast but can leave secret data sitting in the cache;
-          playing it safe costs cycles instead.
+          about to run, and a shrinking window to decide. Watch the gauges,
+          weigh the predictor's confidence, then speculate, wait, flush, or
+          fence the branch before time runs out.
         </span>
       </div>
 
-      <div className="how-to-play">
-        <p className="eyebrow">How Each Round Works</p>
-        <ol>
-          <li><strong>Read the Instruction Card</strong> - what the code does, how sensitive the data is, and how confident the branch predictor is.</li>
-          <li><strong>Check the Policy Read</strong> - a plain-language take on whether this branch is worth speculating on.</li>
-          <li><strong>Pick a Player Action</strong> - Wait, Speculate, Speculate + Flush, or Fence. Each spends cycles and risk differently.</li>
-          <li><strong>Watch both meters</strong> - the run ends if Cache Trace Risk hits 100% or the Cycle Budget hits 0, or once all 10 rounds are cleared.</li>
-        </ol>
-      </div>
+      <ol className="rules-list">
+        {RULES.map((rule, index) => (
+          <li
+            className={`rule-card ${openRuleIndex === index ? "is-open" : ""}`}
+            key={rule.title}
+            style={{ transitionDelay: `${index * 70}ms` }}
+            onMouseEnter={() => openRuleCard(index)}
+            onMouseLeave={scheduleCloseRuleCard}
+            onFocus={() => openRuleCard(index)}
+            onBlur={scheduleCloseRuleCard}
+            tabIndex={0}
+          >
+            <span className="rule-number">{index + 1}</span>
+            <div className="rule-copy">
+              <p className="rule-title">{rule.title}</p>
+              <p className="rule-detail">{rule.detail}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
 
-      <div className="lab-frame">
+       <p className="eyebrow action-guide-heading">What Each Action Does</p>
+          <div className="action-guide">
+            <div className="action-guide-line" />
+            {ACTION_GUIDE.map((item) => (
+              <div className={`action-guide-item ${item.tone}`} key={item.id} tabIndex={0}>
+                <span className="action-guide-dot" />
+                <div className="action-guide-copy">
+                  <strong>{item.label}</strong>
+                  <p>{item.summary}</p>
+                  <div className="action-guide-impact">
+                    <span>When clicked</span>
+                    <p>{item.whenClicked}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+        </div>
+
+      <div className={`lab-frame ${shaking ? "shake-once" : ""}`} onAnimationEnd={() => setShaking(false)}>
+        {!gameStarted && (
+          <div className="start-overlay">
+            <div className="start-card">
+              <span className="start-tag">Lab Standby</span>
+              <h3 className="start-title">Speculative Execution Lab</h3>
+              <p className="start-body">
+                The decision clock stays off until you begin. Skim the rules
+                above, then start the run when you're ready to act on the
+                clock.
+              </p>
+              <button className="start-button" onClick={() => setGameStarted(true)}>
+                Start Simulation
+              </button>
+            </div>
+          </div>
+        )}
+
         <header>
           <strong>CPU Pipeline Console - Spectre Tradeoff Drill</strong>
-          <span className={gameEnded ? (status === "Complete" ? "safe" : "alert") : "watch"}>
-            {status}
-          </span>
+          <div className="header-controls">
+            <span className="stat-chip">
+              Round {Math.min(roundIndex + 1, deck.length)}/{deck.length}
+            </span>
+            <span className="stat-chip">
+              Score <b key={perfPulseKey} className="stat-pop">{performance}</b>
+            </span>
+            <span className={`stat-chip ${streak >= 3 ? "stat-chip--hot" : ""}`}>
+              Streak <b key={streakPulseKey} className="stat-pop">x{streak}</b>
+            </span>
+            <span key={statusKey} className={`status-pill ${statusTone}`}>
+              <span className="status-dot" />
+              <span className="status-label">{status}</span>
+            </span>
+            <button
+              className={`reset-button ${gameEnded ? "cta-highlight cta-highlight--neutral" : ""}`}
+              onClick={resetGame}
+            >
+              Reset Lab
+            </button>
+          </div>
         </header>
 
-        <div className="lab-grid">
-          <div className="panel instruction-panel">
-            <p className="eyebrow">Instruction Card</p>
-            <p className="panel-intro">
-              The branch the CPU is about to hit this round. Weigh the data
-              type and prediction confidence before you act.
-            </p>
-            <div className="card-meta">
-              <strong>{currentRound?.label}</strong>
-              <span className={`risk ${toClassName(currentRound?.baseRisk || "")}`}>
-                {currentRound?.baseRisk} Risk
+        <div className="clock-bar-wrap">
+          <div className="clock-bar-top">
+            <span>Decision Clock</span>
+            <span className={`clock-seconds ${clockTone}`}>{clockSeconds}s</span>
+          </div>
+          <div className="clock-bar" aria-label={`Time remaining ${clockSeconds} seconds`}>
+            <div className={`clock-fill ${clockTone}`} style={{ width: `${clockPercent}%` }} />
+          </div>
+        </div>
+
+        <div className="console" key={currentRound?.roundNumber}>
+          <div className="gauge-row">
+            <div className="gauge">
+              <svg viewBox="0 0 120 120" className="ring-svg">
+                <circle cx="60" cy="60" r={RING_RADIUS} className="ring-track" />
+                <circle
+                  cx="60"
+                  cy="60"
+                  r={RING_RADIUS}
+                  className={`ring-progress ${cycleTone}`}
+                  style={{
+                    strokeDasharray: RING_CIRCUMFERENCE,
+                    strokeDashoffset: cycleDashOffset,
+                  }}
+                  key={cyclesPulseKey}
+                />
+                <text x="60" y="66" textAnchor="middle" className="ring-number">
+                  {Math.max(0, cycles)}
+                </text>
+              </svg>
+              <div className="gauge-label">
+                <span>Cycle Budget</span>
+              </div>
+            </div>
+
+            <div className="instruction-mini">
+              <div className="card-meta">
+                <strong>{currentRound?.label}</strong>
+                <span className={`risk ${toClassName(currentRound?.baseRisk || "")}`}>
+                  {currentRound?.baseRisk} Risk
+                </span>
+              </div>
+
+              <pre aria-label="Instruction code">
+                <code>{currentRound?.instruction.join("\n")}</code>
+              </pre>
+
+              <p className="data-line">
+                Data type: <b>{currentRound?.dataType}</b>
+              </p>
+
+              <div className="policy-read">
+                <span>Policy Read</span>
+                <p>{policyRead}</p>
+              </div>
+            </div>
+
+            <div className="gauge">
+              <svg viewBox="0 0 120 120" className="ring-svg">
+                <circle cx="60" cy="60" r={RING_RADIUS} className="ring-track" />
+                <circle
+                  cx="60"
+                  cy="60"
+                  r={RING_RADIUS}
+                  className={`ring-progress ${riskToneClass}`}
+                  style={{
+                    strokeDasharray: RING_CIRCUMFERENCE,
+                    strokeDashoffset: riskDashOffset,
+                  }}
+                  key={riskPulseKey}
+                />
+                <text x="60" y="66" textAnchor="middle" className="ring-number">
+                  {cacheRisk}%
+                </text>
+              </svg>
+              <div className="gauge-label">
+                <span>Cache Trace Risk</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="confidence-strip">
+            <div className="confidence-copy">
+              <span>Branch Predictor</span>
+              <strong>{currentRound?.prediction}</strong>
+            </div>
+            <div className={`confidence-bar ${confidenceTone}`}>
+              <div className="confidence-fill" style={{ width: `${confidence}%` }} />
+              <div className="confidence-marker" style={{ left: `${confidence}%` }} />
+            </div>
+            <span className="confidence-value">{confidence}% confidence</span>
+          </div>
+
+          <div className="action-row-wrap">
+            {reactionTag && (
+              <span key={reactionTag.key} className="reaction-tag">
+                {reactionTag.text}
               </span>
+            )}
+            <div className="action-row">
+              {ACTIONS.map((action) => {
+                const isSelected = lastAction === action.id;
+                return (
+                  <button
+                    className={`${action.tone} ${isSelected ? "selected" : ""}`}
+                    disabled={gameEnded || !gameStarted}
+                    key={isSelected ? `${action.id}-${selectionPulseKey}` : action.id}
+                    onClick={() => takeAction(action.id)}
+                    onAnimationEnd={(event) => event.stopPropagation()}
+                  >
+                    <span className="action-key">{action.key}</span>
+                    <span className="action-dot" />
+                    {action.label}
+                  </button>
+                );
+              })}
             </div>
-
-            <pre aria-label="Instruction code">
-              <code>{currentRound?.instruction.join("\n")}</code>
-            </pre>
-
-            <dl className="instruction-facts">
-              <div>
-                <dt>Branch History</dt>
-                <dd>{currentRound?.branchHistory.join(", ")}</dd>
-              </div>
-              <div>
-                <dt>Prediction</dt>
-                <dd>{currentRound?.prediction}</dd>
-              </div>
-              <div>
-                <dt>Confidence</dt>
-                <dd>{currentRound?.confidence}%</dd>
-              </div>
-              <div>
-                <dt>Data Type</dt>
-                <dd>{currentRound?.dataType}</dd>
-              </div>
-            </dl>
-
-            <div className="policy-read">
-              <span>Policy Read</span>
-              <strong>{policyRead}</strong>
-            </div>
+            <p className="action-hint">Tip: press 1, 2, 3, or 4 to act instantly.</p>
           </div>
+        </div>
 
-          <div className="panel stats-panel">
-            <p className="eyebrow">Player Stats</p>
-            <p className="panel-intro">
-              Your two budgets for the whole run. Either hitting zero (cycles)
-              or 100% (risk) ends the game early.
-            </p>
-            <dl className="status-grid">
-              <div>
-                <dt>Cycle Budget</dt>
-                <dd>{Math.max(0, cycles)} cycles</dd>
-              </div>
-              <div>
-                <dt>Round</dt>
-                <dd>
-                  {Math.min(roundIndex + 1, deck.length)} / {deck.length}
-                </dd>
-              </div>
-              <div>
-                <dt>Performance</dt>
-                <dd>{performance}</dd>
-              </div>
-              <div>
-                <dt>Cache Trace Risk</dt>
-                <dd>{cacheRisk}%</dd>
-              </div>
-            </dl>
-
-            <div className="risk-meter" aria-label={`Cache trace risk ${cacheRisk}%`}>
-              <span style={riskMeterStyle} />
-            </div>
-
-            <div className="cycle-rail" aria-label={`Cycle budget ${cycles}`}>
-              {Array.from({ length: STARTING_CYCLES }, (_, index) => (
-                <i className={index < Math.max(0, cycles) ? "live" : ""} key={index} />
-              ))}
-            </div>
-          </div>
-
-          <div className="panel action-panel">
-            <p className="eyebrow">Player Actions</p>
-            <p className="panel-intro">
-              Choose how the CPU handles this round's branch. Pick one.
-            </p>
-            <div className="action-list">
-              {ACTIONS.map((action) => (
-                <button
-                  className={lastAction === action.id ? "selected" : ""}
-                  disabled={gameEnded}
-                  key={action.id}
-                  onClick={() => takeAction(action.id)}
-                >
-                  <strong>{action.label}</strong>
-                  <span>{action.description}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="panel guide-panel">
-            <p className="eyebrow">Decision Hints</p>
+        <details className="log-drawer">
+          <summary>
+            <span className="chevron">&#9656;</span>
+            Decision hints &amp; event log
+          </summary>
+          <div className="drawer-content">
             <div className="hint-list">
               <span>Low sensitivity lets you value speed more aggressively.</span>
               <span>High sensitivity makes a wrong prediction more expensive.</span>
@@ -633,34 +1007,29 @@ export default function SpeculativeExecutionLab() {
               <span>Protected boundaries amplify the cost of leftover traces.</span>
               <span>Cleanup and serialization both reduce risk, but neither is free.</span>
             </div>
-          </div>
-        </div>
-
-        <div className="bottom-grid">
-          <div className="log-panel">
-            <p className="eyebrow">Event Log</p>
-            {logs.map((log) => (
-              <span key={log}>{log}</span>
-            ))}
-          </div>
-
-          <footer className={status === "Complete" ? "success" : gameEnded ? "failure" : ""}>
-            <span>{gameEnded ? getEndMessage(status) : message}</span>
-            {gameEnded && (
-              <div className="verdict-card">
-                <span>Verdict</span>
-                <strong>{verdict.label}</strong>
-                <p>{verdict.detail}</p>
-              </div>
-            )}
-            <strong>{"Discarded result \u2260 erased side effect."}</strong>
-            <div className="actions">
-              <button className="secondary" onClick={resetGame}>
-                Reset Lab
-              </button>
+            <div className="log-panel">
+              {logs.map((log) => (
+                <span className="log-line" key={log}>{log}</span>
+              ))}
             </div>
-          </footer>
-        </div>
+          </div>
+        </details>
+
+        <footer className={status === "Complete" ? "success" : gameEnded ? "failure" : ""}>
+          <span key={messageKey} className="footer-message">
+            {gameEnded ? getEndMessage(status) : message}
+          </span>
+          <strong key={instructionKey} className="footer-instruction">
+            {instructionText}
+          </strong>
+          {gameEnded && (
+            <div className="verdict-card">
+              <span>Verdict</span>
+              <strong>{verdict.label}</strong>
+              <p>{verdict.detail}</p>
+            </div>
+          )}
+        </footer>
       </div>
 
       {gameEnded && (
@@ -684,6 +1053,30 @@ export default function SpeculativeExecutionLab() {
         </aside>
       )}
 
+      {resultModalStage !== "closed" && (
+        <div
+          className={`result-backdrop ${resultModalStage === "closing" ? "is-closing" : ""}`}
+          onAnimationEnd={(event) => {
+            if (event.target === event.currentTarget && resultModalStage === "closing") {
+              setResultModalStage("closed");
+            }
+          }}
+        >
+          <div
+            className={`result-card ${
+              status === "Complete" ? "is-success" : status === "Cache Leak" ? "is-failure" : "is-warning"
+            }`}
+          >
+            <span className="result-tag">{status}</span>
+            <h3 className="result-title">{verdict.label}</h3>
+            <p className="result-body">{getEndMessage(status)} {verdict.detail}</p>
+            <button className="result-confirm" onClick={closeResultModal}>
+              Confirm
+            </button>
+          </div>
+        </div>
+      )}
+
       <style suppressHydrationWarning>{`
         .spec-lab {
           --lab-columns: minmax(310px, 1fr) minmax(320px, 1fr);
@@ -700,6 +1093,12 @@ export default function SpeculativeExecutionLab() {
           font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           margin: 86px auto 0;
           width: min(100%, 1040px);
+          animation: labIn 0.5s ease both;
+        }
+
+        @keyframes labIn {
+          from { opacity: 0; transform: translateY(12px); }
+          to { opacity: 1; transform: translateY(0); }
         }
 
         .game-heading {
@@ -707,26 +1106,14 @@ export default function SpeculativeExecutionLab() {
           border: 1px solid var(--line);
           border-left: 3px solid var(--green);
           box-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
-          margin-bottom: 28px;
+          margin-bottom: 24px;
           padding: 20px 22px;
+          animation: slideFadeIn 0.5s ease 0.05s both;
         }
 
-        .game-heading p,
-        .spec-lab .eyebrow {
-          color: var(--green);
-          font-family: "Courier New", ui-monospace, monospace;
-          font-size: 0.72rem;
-          font-weight: 700;
-          letter-spacing: 0.12em;
-          margin: 0 0 10px;
-          text-transform: uppercase;
-          background: transparent;
-        }
-
-        .game-heading h2 {
-          font-size: clamp(2rem, 4vw, 3.2rem);
-          line-height: 1;
-          margin: 0 0 14px;
+        @keyframes slideFadeIn {
+          from { opacity: 0; transform: translateX(-10px); }
+          to { opacity: 1; transform: translateX(0); }
         }
 
         .game-heading span,
@@ -735,106 +1122,500 @@ export default function SpeculativeExecutionLab() {
           line-height: 1.7;
         }
 
-        .how-to-play {
-          background: linear-gradient(145deg, rgba(16, 23, 35, 0.88), rgba(11, 18, 28, 0.72));
-          border: 1px solid var(--line);
-          border-top-color: rgba(37, 243, 154, 0.35);
-          margin-bottom: 24px;
-          padding: 20px 22px;
+        .spec-lab .eyebrow {
+          color: var(--green);
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          margin: 0 0 10px;
+          text-transform: uppercase;
         }
 
-        .how-to-play ol {
+        .rules-list {
           display: grid;
-          gap: 10px;
-          margin: 0;
-          padding-left: 1.2em;
+          gap: 12px;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          list-style: none;
+          margin: 0 0 24px;
+          padding: 0;
         }
 
-        .how-to-play li {
-          color: var(--muted);
-          font-size: 0.88rem;
-          line-height: 1.55;
+        .rule-card {
+          background: rgba(16, 23, 35, 0.6);
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          display: flex;
+          gap: 14px;
+          padding: 16px;
+          opacity: 0;
+          transform: translateY(10px);
+          animation: ruleIn 0.5s ease both;
+          transition: border-color 0.3s ease, background 0.3s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
         }
 
-        .how-to-play li strong {
-          color: var(--text);
+        @keyframes ruleIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
         }
 
-        .panel-intro {
-          color: var(--muted);
+        .rule-card:hover,
+        .rule-card.is-open {
+          border-color: rgba(37, 243, 154, 0.4);
+          background: rgba(37, 243, 154, 0.05);
+          transform: translateY(-4px);
+          box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
+        }
+
+        .rule-card:focus-visible {
+          outline: 1px solid var(--green);
+          outline-offset: 3px;
+        }
+
+        .rule-number {
+          align-items: center;
+          border: 1px solid rgba(37, 243, 154, 0.4);
+          border-radius: 50%;
+          color: var(--green);
+          display: flex;
+          flex-shrink: 0;
+          font-family: "Courier New", ui-monospace, monospace;
           font-size: 0.82rem;
+          font-weight: 700;
+          height: 28px;
+          justify-content: center;
+          width: 28px;
+          transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.3s ease, color 0.3s ease;
+        }
+
+        .rule-card:hover .rule-number,
+        .rule-card.is-open .rule-number {
+          transform: scale(1.15) rotate(-6deg);
+          background: var(--green);
+          color: #070b10;
+        }
+
+        .rule-title {
+          color: var(--text);
+          font-size: 0.86rem;
+          font-weight: 700;
+          margin: 0 0 4px;
+        }
+
+        .rule-detail {
+          color: var(--muted);
+          font-size: 0.8rem;
           line-height: 1.55;
-          margin: 0 0 16px;
+          margin: 0;
+          max-height: 0;
+          opacity: 0;
+          overflow: hidden;
+          transition: max-height 0.35s ease, opacity 0.3s ease, margin-top 0.3s ease;
+        }
+
+        .rule-card:hover .rule-detail,
+        .rule-card.is-open .rule-detail {
+          max-height: 140px;
+          opacity: 1;
+          margin-top: 2px;
         }
 
         .lab-frame {
           background: linear-gradient(180deg, #121a28, #0b111a);
           border: var(--divider) solid var(--line);
           box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+          animation: slideFadeIn 0.55s ease 0.18s both;
+          position: relative;
+        }
+
+        .lab-frame.shake-once {
+          animation: frameShake 0.4s ease;
+        }
+
+        @keyframes frameShake {
+          0%, 100% { transform: translateX(0); }
+          20% { transform: translateX(-6px); }
+          40% { transform: translateX(5px); }
+          60% { transform: translateX(-4px); }
+          80% { transform: translateX(3px); }
+        }
+
+        .start-overlay {
+          align-items: center;
+          background: rgba(6, 10, 16, 0.86);
+          backdrop-filter: blur(4px);
+          bottom: 0;
+          display: flex;
+          justify-content: center;
+          left: 0;
+          padding: 24px;
+          position: absolute;
+          right: 0;
+          top: 0;
+          z-index: 40;
+          animation: backdropIn 0.3s ease both;
+        }
+
+        .start-card {
+          animation: cardIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+          background: linear-gradient(180deg, #141d2c, #0c131e);
+          border: 1px solid rgba(37, 243, 154, 0.35);
+          box-shadow: 0 30px 90px rgba(37, 243, 154, 0.12);
+          max-width: 400px;
+          padding: 32px;
+          text-align: center;
+          width: 100%;
+        }
+
+        .start-tag {
+          color: var(--green);
+          display: inline-block;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.7rem;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          margin-bottom: 14px;
+          text-transform: uppercase;
+        }
+
+        .start-title {
+          color: var(--text);
+          font-size: 1.25rem;
+          font-weight: 700;
+          margin: 0 0 12px;
+        }
+
+        .start-body {
+          color: var(--muted);
+          font-size: 0.86rem;
+          line-height: 1.6;
+          margin: 0 0 26px;
+        }
+
+        .start-button {
+          animation: ctaPulse 1.8s ease-in-out infinite;
+          background: var(--green);
+          border: 1px solid var(--green);
+          color: #070b10;
+          cursor: pointer;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.8rem;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          min-height: 44px;
+          padding: 0 26px;
+          text-transform: uppercase;
+          transition: transform 0.15s ease, box-shadow 0.2s ease;
+        }
+
+        .start-button:hover {
+          box-shadow: 0 10px 26px rgba(37, 243, 154, 0.3);
+          transform: translateY(-2px);
         }
 
         .lab-frame header {
           align-items: center;
           border-bottom: var(--divider) solid var(--line);
           display: flex;
+          flex-wrap: wrap;
           gap: 16px;
           justify-content: space-between;
           padding: 16px 22px;
         }
 
-        .lab-frame header strong,
-        .lab-frame header span,
-        .log-panel,
-        .lab-frame footer {
+        .lab-frame header strong {
           font-family: "Courier New", ui-monospace, monospace;
-        }
-
-        .lab-frame header strong,
-        .lab-frame header span {
           font-size: 0.76rem;
           letter-spacing: 0.08em;
           text-transform: uppercase;
         }
 
-        .safe,
-        .success {
-          color: var(--green);
+        .header-controls {
+          align-items: center;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
         }
 
-        .watch {
+        .stat-chip {
+          align-items: center;
+          background: rgba(139, 160, 186, 0.08);
+          border: 1px solid rgba(139, 160, 186, 0.22);
+          border-radius: 20px;
+          color: var(--muted);
+          display: inline-flex;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.7rem;
+          gap: 6px;
+          letter-spacing: 0.06em;
+          padding: 5px 12px;
+          text-transform: uppercase;
+          transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .stat-chip b {
+          color: var(--green);
+          font-weight: 700;
+        }
+
+        .stat-chip--hot {
+          border-color: rgba(246, 183, 60, 0.5);
+          box-shadow: 0 0 14px rgba(246, 183, 60, 0.18);
+        }
+
+        .stat-chip--hot b {
           color: var(--amber);
         }
 
-        .alert,
-        .failure {
-          color: var(--red);
+        .stat-pop {
+          display: inline-block;
+          animation: statPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
         }
 
-        .lab-grid {
-          display: grid;
-          grid-template-columns: var(--lab-columns);
+        @keyframes statPop {
+          0% { transform: scale(1.4); text-shadow: 0 0 14px rgba(37, 243, 154, 0.8); }
+          100% { transform: scale(1); }
+        }
+
+        .status-pill {
+          align-items: center;
+          display: inline-flex;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.76rem;
+          gap: 8px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          animation: pillIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        @keyframes pillIn {
+          from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .status-dot {
+          background: currentColor;
+          border-radius: 50%;
+          flex-shrink: 0;
+          height: 8px;
+          width: 8px;
+          animation: dotIn 0.3s ease both, dotPulse 1.8s ease-in-out 0.3s infinite;
+        }
+
+        @keyframes dotIn {
+          from { transform: scale(0.4); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes dotPulse {
+          0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+          50% { box-shadow: 0 0 0 4px transparent; opacity: 0.55; }
+        }
+
+        .status-label { display: inline-block; }
+
+        .status-green { color: var(--green); }
+        .status-amber { color: var(--amber); }
+        .status-red { color: var(--red); }
+
+        .reset-button {
+          background: transparent;
+          border: 1px solid #4a668a;
+          color: #b7c7da;
+          cursor: pointer;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          min-height: 30px;
+          padding: 0 12px;
+          text-transform: uppercase;
           position: relative;
+          transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.15s ease;
         }
 
-        .lab-grid::before,
-        .bottom-grid::before {
-          background: var(--line);
-          bottom: 0;
-          content: "";
-          left: calc(50% - (var(--divider) / 2));
+        .reset-button:hover {
+          background: rgba(74, 102, 138, 0.18);
+          transform: translateY(-1px);
+        }
+
+        .cta-highlight { animation: ctaPulse 1.8s ease-in-out infinite; }
+
+        .cta-highlight::after {
+          animation: tagIn 0.3s ease 0.15s both;
+          background: #b7c7da;
+          border-radius: 3px;
+          color: #0b111a;
+          content: "Click this";
+          font-size: 0.6rem;
+          font-weight: 700;
+          left: 50%;
+          letter-spacing: 0.06em;
+          padding: 3px 8px;
           position: absolute;
-          top: 0;
-          width: var(--divider);
-          z-index: 1;
+          text-transform: uppercase;
+          top: -22px;
+          transform: translateX(-50%);
+          white-space: nowrap;
         }
 
-        .panel {
-          border-bottom: var(--divider) solid var(--line);
-          padding: 24px;
+        @keyframes tagIn {
+          from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
 
-        .panel:nth-child(odd) {
-          border-right: 0;
+        @keyframes ctaPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(183, 199, 218, 0.35); }
+          50% { box-shadow: 0 0 0 7px rgba(183, 199, 218, 0); }
+        }
+
+        .clock-bar-wrap {
+          border-bottom: 1px solid var(--line);
+          padding: 14px 24px;
+        }
+
+        .clock-bar-top {
+          align-items: center;
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 8px;
+        }
+
+        .clock-bar-top span:first-child {
+          color: var(--muted);
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.68rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+        }
+
+        .clock-seconds {
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.9rem;
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+          transition: color 0.3s ease;
+        }
+
+        .clock-seconds.clock-safe { color: var(--green); }
+        .clock-seconds.clock-warn { color: var(--amber); }
+        .clock-seconds.clock-danger {
+          color: var(--red);
+          animation: clockPulseText 0.6s ease-in-out infinite;
+        }
+
+        @keyframes clockPulseText {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+
+        .clock-bar {
+          background: #1d2533;
+          border-radius: 5px;
+          height: 10px;
+          overflow: hidden;
+        }
+
+        .clock-fill {
+          height: 100%;
+          transition: width 100ms linear, background 0.3s ease;
+        }
+
+        .clock-fill.clock-safe { background: linear-gradient(90deg, var(--green), #b8ffe0); }
+        .clock-fill.clock-warn { background: linear-gradient(90deg, var(--amber), #ffe1a8); }
+        .clock-fill.clock-danger {
+          background: linear-gradient(90deg, var(--red), #ff8fa0);
+          animation: clockPulseBar 0.6s ease-in-out infinite;
+        }
+
+        @keyframes clockPulseBar {
+          0%, 100% { filter: brightness(1); }
+          50% { filter: brightness(1.4); }
+        }
+
+        .console {
+          animation: roundIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+          padding: 26px 24px 10px;
+        }
+
+        @keyframes roundIn {
+          from { opacity: 0; transform: translateX(10px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+
+        .gauge-row {
+          align-items: start;
+          display: grid;
+          gap: 20px;
+          grid-template-columns: 150px minmax(0, 1fr) 150px;
+          margin-bottom: 22px;
+        }
+
+        .gauge {
+          display: grid;
+          justify-items: center;
+          row-gap: 10px;
+        }
+
+        .ring-svg {
+          height: 130px;
+          width: 130px;
+        }
+
+        .ring-track {
+          fill: none;
+          stroke: rgba(139, 160, 186, 0.16);
+          stroke-width: 10;
+        }
+
+        .ring-progress {
+          fill: none;
+          stroke-linecap: round;
+          stroke-width: 10;
+          transform: rotate(-90deg);
+          transform-origin: 60px 60px;
+          transition: stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.3s ease;
+          animation: ringFlash 0.5s ease;
+        }
+
+        @keyframes ringFlash {
+          0% { filter: brightness(2); }
+          100% { filter: brightness(1); }
+        }
+
+        .ring-safe { stroke: var(--green); }
+        .ring-warn { stroke: var(--amber); }
+        .ring-danger { stroke: var(--red); }
+
+        .ring-number {
+          fill: var(--text);
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 1.6rem;
+          font-weight: 700;
+        }
+
+        .gauge-label {
+          text-align: center;
+        }
+
+        .gauge-label span {
+          color: var(--muted);
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.68rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .instruction-mini {
+          background: rgba(0, 0, 0, 0.16);
+          border: 1px solid rgba(139, 160, 186, 0.18);
+          border-radius: 6px;
+          padding: 16px;
+          transition: border-color 0.3s ease;
+        }
+
+        .instruction-mini:hover {
+          border-color: rgba(37, 243, 154, 0.3);
         }
 
         .card-meta {
@@ -842,194 +1623,468 @@ export default function SpeculativeExecutionLab() {
           display: flex;
           gap: 12px;
           justify-content: space-between;
-          margin-bottom: 14px;
+          margin-bottom: 12px;
         }
 
-        .card-meta strong {
-          font-size: 1.04rem;
-        }
+        .card-meta strong { font-size: 1rem; }
 
         .risk {
           color: var(--amber);
           font-family: "Courier New", ui-monospace, monospace;
-          font-size: 0.68rem;
+          font-size: 0.66rem;
           font-weight: 700;
           letter-spacing: 0.08em;
           text-transform: uppercase;
         }
 
-        .risk.high,
-        .risk.critical {
-          color: var(--red);
-        }
-
-        .risk.low {
-          color: var(--green);
-        }
+        .risk.high, .risk.critical { color: var(--red); }
+        .risk.low { color: var(--green); }
 
         pre {
           background: rgba(0, 0, 0, 0.28);
           border: 1px solid rgba(139, 160, 186, 0.22);
           color: #dbe7f5;
           font-family: "Courier New", ui-monospace, monospace;
-          font-size: 0.98rem;
-          line-height: 1.7;
-          margin: 0 0 16px;
+          font-size: 0.92rem;
+          line-height: 1.6;
+          margin: 0 0 12px;
           overflow: auto;
-          padding: 18px;
+          padding: 14px;
           white-space: pre-wrap;
         }
 
-        .instruction-facts,
-        .status-grid {
-          display: grid;
-          gap: 10px;
-          grid-template-columns: repeat(2, 1fr);
-          margin: 0;
-        }
-
-        .instruction-facts div,
-        .status-grid div {
-          border: 1px solid rgba(139, 160, 186, 0.16);
-          padding: 12px;
-        }
-
-        .instruction-facts dt,
-        .status-grid dt {
+        .data-line {
           color: var(--muted);
-          font-size: 0.74rem;
+          font-size: 0.78rem;
+          margin: 0 0 12px;
         }
 
-        .instruction-facts dd,
-        .status-grid dd {
-          color: var(--green);
-          font-family: "Courier New", ui-monospace, monospace;
-          margin: 7px 0 0;
-          overflow-wrap: anywhere;
+        .data-line b {
+          color: var(--blue);
+          font-weight: 700;
         }
 
         .policy-read {
-          background: rgba(37, 243, 154, 0.06);
-          border: 1px solid rgba(37, 243, 154, 0.22);
+          border-left: 2px solid var(--green);
           display: grid;
-          gap: 8px;
-          margin-top: 14px;
-          padding: 13px;
+          gap: 4px;
+          padding: 2px 0 2px 12px;
+          animation: policyIn 0.4s ease 0.1s both;
+        }
+
+        @keyframes policyIn {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
         }
 
         .policy-read span {
           color: var(--green);
           font-family: "Courier New", ui-monospace, monospace;
-          font-size: 0.68rem;
+          font-size: 0.64rem;
           font-weight: 700;
           letter-spacing: 0.1em;
           text-transform: uppercase;
         }
 
-        .policy-read strong {
+        .policy-read p {
           color: #dbe7f5;
-          font-size: 0.86rem;
+          font-size: 0.82rem;
           line-height: 1.45;
+          margin: 0;
         }
 
-        .risk-meter {
-          background: #1d2533;
-          height: 9px;
-          margin: 18px 0;
-          overflow: hidden;
-        }
-
-        .risk-meter span {
-          background: linear-gradient(90deg, var(--green), var(--amber), var(--red));
-          background-position: left center;
-          background-repeat: no-repeat;
-          display: block;
-          height: 100%;
-          transition: width 0.2s ease;
-        }
-
-        .cycle-rail {
+        .confidence-strip {
+          align-items: center;
           display: grid;
-          gap: 4px;
-          grid-template-columns: repeat(15, 1fr);
-          margin-bottom: 18px;
+          gap: 14px;
+          grid-template-columns: minmax(140px, auto) minmax(0, 1fr) auto;
+          margin-bottom: 22px;
         }
 
-        .cycle-rail i {
-          background: rgba(139, 160, 186, 0.18);
-          display: block;
-          height: 10px;
-        }
-
-        .cycle-rail i.live {
-          background: var(--blue);
-          box-shadow: 0 0 12px rgba(84, 199, 255, 0.25);
-        }
-
-        .action-list,
-        .hint-list {
+        .confidence-copy {
           display: grid;
-          gap: 10px;
+          gap: 2px;
         }
 
-        .action-list button {
-          background: rgba(0, 0, 0, 0.12);
-          border: 1px solid rgba(139, 160, 186, 0.2);
-          color: var(--text);
-          cursor: pointer;
-          display: grid;
-          gap: 7px;
-          min-height: 72px;
-          padding: 12px;
-          text-align: left;
-        }
-
-        .action-list button.selected {
-          border-color: var(--green);
-          box-shadow: inset 0 0 0 1px rgba(37, 243, 154, 0.15);
-        }
-
-        .action-list strong {
+        .confidence-copy span {
+          color: var(--muted);
           font-family: "Courier New", ui-monospace, monospace;
-          font-size: 0.86rem;
+          font-size: 0.64rem;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
         }
 
-        .action-list span,
-        .hint-list span {
+        .confidence-copy strong { font-size: 0.9rem; }
+
+        .confidence-bar {
+          background: #1d2533;
+          border-radius: 4px;
+          height: 10px;
+          position: relative;
+          overflow: visible;
+        }
+
+        .confidence-fill {
+          border-radius: 4px;
+          height: 100%;
+          transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .conf-strong .confidence-fill { background: linear-gradient(90deg, var(--green), #b8ffe0); }
+        .conf-weak .confidence-fill { background: linear-gradient(90deg, var(--amber), #ffe1a8); }
+
+        .confidence-marker {
+          background: var(--text);
+          border-radius: 50%;
+          box-shadow: 0 0 0 3px rgba(244, 247, 251, 0.18);
+          height: 14px;
+          position: absolute;
+          top: 50%;
+          transform: translate(-50%, -50%);
+          transition: left 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+          width: 14px;
+        }
+
+        .confidence-value {
           color: var(--muted);
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.74rem;
+          white-space: nowrap;
+        }
+
+        .action-guide-heading {
+          margin-bottom: 10px !important;
+        }
+
+        .action-guide {
+          margin-bottom: 20px;
+          padding-left: 4px;
+          position: relative;
+        }
+
+        .action-guide-line {
+          background: rgba(139, 160, 186, 0.2);
+          bottom: 8px;
+          left: 9px;
+          position: absolute;
+          top: 8px;
+          width: 1px;
+        }
+
+        .action-guide-item {
+          border-radius: 8px;
+          cursor: pointer;
+          padding: 10px 14px 10px 30px;
+          position: relative;
+          transition: background 0.3s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
+        }
+
+        .action-guide-item:hover,
+        .action-guide-item:focus-visible {
+          background: rgba(37, 243, 154, 0.05);
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+          outline: none;
+          transform: translateX(6px);
+        }
+
+        .action-guide-item.tone-risk:hover,
+        .action-guide-item.tone-risk:focus-visible {
+          background: rgba(255, 60, 85, 0.06);
+        }
+
+        .action-guide-item.tone-mid:hover,
+        .action-guide-item.tone-mid:focus-visible {
+          background: rgba(246, 183, 60, 0.06);
+        }
+
+        .action-guide-dot {
+          background: var(--green);
+          border-radius: 50%;
+          height: 9px;
+          left: 5px;
+          position: absolute;
+          top: 16px;
+          transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+          width: 9px;
+        }
+
+        .action-guide-item.tone-risk .action-guide-dot { background: var(--red); }
+        .action-guide-item.tone-mid .action-guide-dot { background: var(--amber); }
+
+        .action-guide-item:hover .action-guide-dot,
+        .action-guide-item:focus-visible .action-guide-dot {
+          box-shadow: 0 0 0 6px rgba(37, 243, 154, 0.15);
+          transform: scale(1.35);
+        }
+
+        .action-guide-item.tone-risk:hover .action-guide-dot,
+        .action-guide-item.tone-risk:focus-visible .action-guide-dot {
+          box-shadow: 0 0 0 6px rgba(255, 60, 85, 0.15);
+        }
+
+        .action-guide-item.tone-mid:hover .action-guide-dot,
+        .action-guide-item.tone-mid:focus-visible .action-guide-dot {
+          box-shadow: 0 0 0 6px rgba(246, 183, 60, 0.15);
+        }
+
+        .action-guide-copy strong {
+          font-family: "Courier New", ui-monospace, monospace;
           font-size: 0.82rem;
-          line-height: 1.45;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+        }
+
+        .action-guide-copy p {
+          color: var(--muted);
+          font-size: 0.8rem;
+          line-height: 1.5;
+          margin: 4px 0 0;
+        }
+
+        .action-guide-impact {
+          display: grid;
+          grid-template-rows: 0fr;
+          margin-top: 0;
+          opacity: 0;
+          transition: grid-template-rows 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease, margin-top 0.4s ease;
+        }
+
+        .action-guide-impact > * { min-height: 0; }
+
+        .action-guide-impact p {
+          color: #dbe7f5;
+          font-size: 0.78rem;
+          line-height: 1.5;
+          margin: 0;
+          overflow: hidden;
+        }
+
+        .action-guide-impact span {
+          color: var(--green);
+          display: block;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.62rem;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+          opacity: 0;
+          overflow: hidden;
+          text-transform: uppercase;
+          transform: translateY(-4px);
+          transition: opacity 0.3s ease 0.08s, transform 0.3s ease 0.08s;
+        }
+
+        .action-guide-item.tone-risk .action-guide-impact span { color: var(--red); }
+        .action-guide-item.tone-mid .action-guide-impact span { color: var(--amber); }
+
+        .action-guide-item:hover .action-guide-impact,
+        .action-guide-item:focus-visible .action-guide-impact {
+          grid-template-rows: 1fr;
+          margin-top: 8px;
+          opacity: 1;
+        }
+
+        .action-guide-item:hover .action-guide-impact span,
+        .action-guide-item:focus-visible .action-guide-impact span {
+          opacity: 1;
+          transform: translateY(0);
+        }
+
+        .action-row-wrap {
+          position: relative;
+        }
+
+        .reaction-tag {
+          animation: reactionFloat 1.3s ease both;
+          background: var(--green);
+          border-radius: 4px;
+          color: #070b10;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.7rem;
+          font-weight: 700;
+          left: 50%;
+          letter-spacing: 0.05em;
+          padding: 4px 10px;
+          position: absolute;
+          text-transform: uppercase;
+          top: -30px;
+          transform: translateX(-50%);
+          white-space: nowrap;
+        }
+
+        @keyframes reactionFloat {
+          0% { opacity: 0; transform: translate(-50%, 6px) scale(0.9); }
+          15% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+          75% { opacity: 1; transform: translate(-50%, -6px) scale(1); }
+          100% { opacity: 0; transform: translate(-50%, -14px) scale(0.95); }
+        }
+
+        .action-row {
+          display: grid;
+          gap: 12px;
+          grid-template-columns: repeat(4, 1fr);
+          margin-bottom: 10px;
+        }
+
+        .action-row button {
+          align-items: center;
+          background: rgba(0, 0, 0, 0.14);
+          border: 1px solid rgba(139, 160, 186, 0.22);
+          border-radius: 6px;
+          color: var(--text);
+          cursor: pointer;
+          display: flex;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.82rem;
+          font-weight: 700;
+          gap: 9px;
+          justify-content: center;
+          min-height: 58px;
+          padding: 10px;
+          position: relative;
+          text-align: center;
+          transition: border-color 0.2s ease, background 0.2s ease, transform 0.18s ease, box-shadow 0.2s ease;
+        }
+
+        .action-key {
+          align-items: center;
+          background: rgba(139, 160, 186, 0.14);
+          border-radius: 3px;
+          color: var(--muted);
+          display: flex;
+          font-size: 0.66rem;
+          height: 16px;
+          justify-content: center;
+          left: 6px;
+          position: absolute;
+          top: 6px;
+          width: 16px;
+        }
+
+        .action-dot {
+          border-radius: 50%;
+          flex-shrink: 0;
+          height: 9px;
+          width: 9px;
+        }
+
+        .tone-safe .action-dot { background: var(--green); }
+        .tone-mid .action-dot { background: var(--amber); }
+        .tone-risk .action-dot { background: var(--red); }
+
+        .action-row button:not(:disabled):hover {
+          border-color: rgba(37, 243, 154, 0.4);
+          background: rgba(37, 243, 154, 0.06);
+          transform: translateY(-2px);
+          box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+        }
+
+        .action-row button:not(:disabled):active { transform: translateY(0) scale(0.98); }
+
+        .action-row button.selected {
+          border-color: var(--green);
+          box-shadow: inset 0 0 0 1px rgba(37, 243, 154, 0.15);
+          animation: selectPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes selectPop {
+          0% { transform: scale(1); }
+          40% { transform: scale(1.04); box-shadow: 0 0 0 4px rgba(37, 243, 154, 0.18); }
+          100% { transform: scale(1); }
+        }
+
+        .action-hint {
+          color: var(--muted);
+          font-size: 0.72rem;
+          margin: 0 0 4px;
+          text-align: center;
+        }
+
+        button:disabled { cursor: default; opacity: 0.45; }
+
+        .log-drawer {
+          border-top: 1px solid var(--line);
+          padding: 6px 24px 0;
+        }
+
+        .log-drawer summary {
+          align-items: center;
+          color: var(--muted);
+          cursor: pointer;
+          display: flex;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.74rem;
+          gap: 8px;
+          letter-spacing: 0.06em;
+          list-style: none;
+          padding: 12px 0;
+          text-transform: uppercase;
+          user-select: none;
+        }
+
+        .log-drawer summary::-webkit-details-marker { display: none; }
+
+        .chevron {
+          display: inline-block;
+          transition: transform 0.25s ease;
+        }
+
+        .log-drawer[open] .chevron { transform: rotate(90deg); }
+
+        .drawer-content {
+          animation: drawerIn 0.3s ease both;
+          display: grid;
+          gap: 18px;
+          grid-template-columns: 1fr 1fr;
+          padding-bottom: 18px;
+        }
+
+        @keyframes drawerIn {
+          from { opacity: 0; transform: translateY(-4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .hint-list, .log-panel {
+          display: grid;
+          gap: 8px;
         }
 
         .hint-list span {
           border: 1px solid rgba(139, 160, 186, 0.16);
-          padding: 12px;
+          border-radius: 4px;
+          color: var(--muted);
+          font-size: 0.78rem;
+          line-height: 1.4;
+          padding: 9px 11px;
+          transition: border-color 0.25s ease, background 0.25s ease, transform 0.2s ease;
         }
 
-        .bottom-grid {
-          display: grid;
-          grid-template-columns: var(--lab-columns);
-          position: relative;
-        }
-
-        .log-panel,
-        .lab-frame footer {
-          padding: 18px 22px;
+        .hint-list span:hover {
+          border-color: rgba(84, 199, 255, 0.35);
+          background: rgba(84, 199, 255, 0.05);
+          transform: translateX(3px);
         }
 
         .log-panel {
           color: var(--muted);
-          display: grid;
-          gap: 7px;
-          font-size: 0.76rem;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.72rem;
+        }
+
+        .log-line { animation: logIn 0.35s ease both; }
+
+        @keyframes logIn {
+          from { opacity: 0; transform: translateY(-4px); }
+          to { opacity: 1; transform: translateY(0); }
         }
 
         .lab-frame footer {
+          border-top: var(--divider) solid var(--line);
           color: var(--muted);
           display: grid;
+          font-family: "Courier New", ui-monospace, monospace;
           gap: 8px;
           line-height: 1.5;
+          padding: 18px 24px 22px;
         }
 
         .lab-frame footer strong {
@@ -1039,11 +2094,31 @@ export default function SpeculativeExecutionLab() {
           text-transform: uppercase;
         }
 
+        .footer-message, .footer-instruction {
+          animation: messageIn 0.3s ease both;
+          display: block;
+        }
+
+        @keyframes messageIn {
+          from { opacity: 0; transform: translateY(3px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .success { color: var(--green); }
+        .failure { color: var(--red); }
+
         .verdict-card {
+          animation: verdictIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
           border: 1px solid rgba(139, 160, 186, 0.22);
+          border-radius: 4px;
           display: grid;
           gap: 6px;
           padding: 12px;
+        }
+
+        @keyframes verdictIn {
+          from { opacity: 0; transform: translateY(10px) scale(0.97); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
         }
 
         .verdict-card span {
@@ -1054,10 +2129,7 @@ export default function SpeculativeExecutionLab() {
           text-transform: uppercase;
         }
 
-        .verdict-card strong {
-          color: var(--text);
-          font-size: 0.82rem;
-        }
+        .verdict-card strong { color: var(--text); font-size: 0.82rem; }
 
         .verdict-card p {
           color: var(--muted);
@@ -1067,95 +2139,156 @@ export default function SpeculativeExecutionLab() {
           margin: 0;
         }
 
-        .actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-top: 6px;
-        }
-
-        button.secondary {
-          background: transparent;
-          border: 1px solid #4a668a;
-          color: #b7c7da;
-          cursor: pointer;
-          font-family: "Courier New", ui-monospace, monospace;
-          font-size: 0.78rem;
-          font-weight: 700;
-          min-height: 40px;
-          padding: 0 16px;
-          text-transform: uppercase;
-        }
-
-        button:disabled {
-          cursor: default;
-          opacity: 0.46;
-        }
-
         .accuracy-note {
+          animation: explanationIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
           background: rgba(16, 23, 35, 0.78);
           border: var(--divider) solid var(--line);
           margin-top: 22px;
           padding: 22px;
         }
 
-        .accuracy-note p:last-child {
-          margin-bottom: 0;
+        @keyframes explanationIn {
+          0% { opacity: 0; transform: translateY(14px); border-color: var(--line); }
+          60% { border-color: rgba(37, 243, 154, 0.35); }
+          100% { opacity: 1; transform: translateY(0); border-color: var(--line); }
         }
 
+        .accuracy-note p:last-child { margin-bottom: 0; }
+
+        .result-backdrop {
+          align-items: center;
+          animation: backdropIn 0.25s ease both;
+          background: rgba(4, 7, 12, 0.72);
+          backdrop-filter: blur(3px);
+          bottom: 0;
+          display: flex;
+          justify-content: center;
+          left: 0;
+          padding: 24px;
+          position: fixed;
+          right: 0;
+          top: 0;
+          z-index: 60;
+        }
+
+        .result-backdrop.is-closing { animation: backdropOut 0.25s ease both; }
+
+        @keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes backdropOut { from { opacity: 1; } to { opacity: 0; } }
+
+        .result-card {
+          animation: cardIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+          background: linear-gradient(180deg, #141d2c, #0c131e);
+          border: 1px solid var(--line);
+          box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
+          max-width: 440px;
+          padding: 32px;
+          text-align: left;
+          width: 100%;
+        }
+
+        .result-backdrop.is-closing .result-card { animation: cardOut 0.22s ease both; }
+
+        @keyframes cardIn {
+          from { opacity: 0; transform: translateY(24px) scale(0.94); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        @keyframes cardOut {
+          from { opacity: 1; transform: translateY(0) scale(1); }
+          to { opacity: 0; transform: translateY(10px) scale(0.96); }
+        }
+
+        .result-card.is-success { border-color: rgba(37, 243, 154, 0.4); box-shadow: 0 30px 90px rgba(37, 243, 154, 0.12); }
+        .result-card.is-failure { border-color: rgba(255, 60, 85, 0.4); box-shadow: 0 30px 90px rgba(255, 60, 85, 0.12); }
+        .result-card.is-warning { border-color: rgba(246, 183, 60, 0.4); box-shadow: 0 30px 90px rgba(246, 183, 60, 0.12); }
+
+        .result-tag {
+          animation: pillIn 0.4s ease 0.1s both;
+          display: inline-block;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.7rem;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          margin-bottom: 14px;
+          text-transform: uppercase;
+        }
+
+        .result-card.is-success .result-tag { color: var(--green); }
+        .result-card.is-failure .result-tag { color: var(--red); }
+        .result-card.is-warning .result-tag { color: var(--amber); }
+
+        .result-title {
+          animation: messageIn 0.4s ease 0.14s both;
+          color: var(--text);
+          font-size: 1.3rem;
+          font-weight: 700;
+          margin: 0 0 12px;
+        }
+
+        .result-body {
+          animation: messageIn 0.4s ease 0.18s both;
+          color: var(--muted);
+          font-size: 0.9rem;
+          line-height: 1.65;
+          margin: 0 0 24px;
+        }
+
+        .result-confirm {
+          animation: messageIn 0.4s ease 0.22s both;
+          background: transparent;
+          border: 1px solid;
+          cursor: pointer;
+          font-family: "Courier New", ui-monospace, monospace;
+          font-size: 0.78rem;
+          font-weight: 700;
+          min-height: 42px;
+          padding: 0 22px;
+          text-transform: uppercase;
+          transition: background 0.18s ease, color 0.18s ease, transform 0.15s ease, box-shadow 0.18s ease;
+        }
+
+        .result-card.is-success .result-confirm { border-color: var(--green); color: var(--green); }
+        .result-card.is-success .result-confirm:hover { background: var(--green); color: #070b10; box-shadow: 0 6px 18px rgba(37, 243, 154, 0.25); transform: translateY(-2px); }
+        .result-card.is-failure .result-confirm { border-color: var(--red); color: var(--red); }
+        .result-card.is-failure .result-confirm:hover { background: var(--red); color: #fff; box-shadow: 0 6px 18px rgba(255, 60, 85, 0.25); transform: translateY(-2px); }
+        .result-card.is-warning .result-confirm { border-color: var(--amber); color: var(--amber); }
+        .result-card.is-warning .result-confirm:hover { background: var(--amber); color: #070b10; box-shadow: 0 6px 18px rgba(246, 183, 60, 0.25); transform: translateY(-2px); }
+
         @media (max-width: 900px) {
-          .lab-grid,
-          .bottom-grid,
-          .instruction-facts,
-          .status-grid {
-            grid-template-columns: 1fr;
-          }
+          .gauge-row { grid-template-columns: 1fr; }
+          .gauge { justify-self: center; }
+          .confidence-strip { grid-template-columns: 1fr; }
+          .action-row { grid-template-columns: repeat(2, 1fr); }
+          .drawer-content { grid-template-columns: 1fr; }
+        }
 
-          .panel:nth-child(odd),
-          .log-panel {
-            border-right: 0;
-          }
-
-          .lab-grid::before,
-          .bottom-grid::before {
-            display: none;
-          }
-
-          .lab-frame footer {
-            margin-left: 0;
-          }
-
-          .lab-frame header {
-            align-items: flex-start;
-            flex-direction: column;
-          }
+        @media (max-width: 760px) {
+          .rules-list { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 560px) {
-          .spec-lab {
-            margin-top: 64px;
-          }
+          .spec-lab { margin-top: 64px; }
+          .console { padding: 20px 16px 6px; }
+          .action-row { grid-template-columns: 1fr; }
+          .lab-frame footer { padding: 16px; }
+        }
 
-          .panel,
-          .log-panel,
-          .lab-frame footer {
-            padding: 18px;
+        @media (prefers-reduced-motion: reduce) {
+          .spec-lab, .game-heading, .rules-list, .rule-card, .rule-number, .rule-detail,
+          .lab-frame, .lab-frame.shake-once, .status-pill, .status-dot, .reset-button, .console, .ring-progress,
+          .instruction-mini, .policy-read, .confidence-fill, .clock-fill, .clock-seconds.clock-danger,
+          .confidence-marker, .action-guide-item, .action-guide-dot, .action-guide-impact,
+          .action-guide-impact span, .action-row button, .action-row button.selected, .reaction-tag,
+          .log-drawer, .chevron, .drawer-content, .hint-list span, .log-line, .footer-message,
+          .footer-instruction, .stat-pop, .verdict-card, .accuracy-note, .result-backdrop,
+          .result-card, .result-tag, .result-title, .result-body, .result-confirm, .cta-highlight,
+          .start-overlay, .start-card, .start-button {
+            animation: none !important;
+            transition: none !important;
           }
-
         }
       `}</style>
     </section>
   );
-}
-
-function getEndMessage(status) {
-  if (status === "Complete") {
-    return "Execution completed. Workload retired before risk or cycles failed.";
-  }
-
-  if (status === "Cache Leak") {
-    return "Cache Trace Risk reached 100%. Secret data leaked through speculative side effects.";
-  }
-
-  return "Cycle budget exhausted. The CPU was too slow to complete the workload.";
 }

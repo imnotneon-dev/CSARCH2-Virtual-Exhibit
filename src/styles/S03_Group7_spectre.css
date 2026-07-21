@@ -633,3 +633,129 @@
     transition: none !important;
   }
 }
+
+
+/* ============================================================
+   Intro enhancements — append these rules to the end of
+   S03_Group7_spectre.css. Nothing above is modified or removed;
+   these are additive and scoped to .intro-* / .alert-* selectors
+   so they won't touch other components sharing .reveal, .card,
+   .timeline, etc. elsewhere in the site.
+   ============================================================ */
+
+/* ---- Breaking-news style tag on the alert strip ---- */
+.alert-tag {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.22);
+  padding: 3px 10px;
+  border-radius: 2px;
+}
+
+.alert-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  animation: alertDotPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes alertDotPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* ---- Chip visual: hover/focus affordance + spin ---- */
+.intro-visual {
+  cursor: pointer;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.chip-svg {
+  transform-origin: 50% 50%;
+  transition: filter 0.5s ease;
+}
+
+.intro-visual:hover .chip-svg {
+  filter: drop-shadow(0 0 18px rgba(0, 255, 136, 0.35));
+}
+
+.chip-svg.spin-once {
+  animation: chipSpin 0.9s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+@keyframes chipSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.intro-visual-hint {
+  display: block;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.4s ease 0.6s, color 0.3s ease;
+}
+
+.intro-grid.is-visible .intro-visual-hint {
+  opacity: 0.7;
+}
+
+.intro-visual:hover .intro-visual-hint {
+  color: var(--green);
+  opacity: 1;
+}
+
+/* ---- Staggered reveal for the intro content ----
+   Scoped to direct children of .intro-grid (eyebrow, title, visual,
+   subtitle, body) rather than overriding the shared .reveal class,
+   so other sections using .reveal / .reveal-left are unaffected. */
+.intro-grid > * {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.intro-grid.is-visible > * {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.intro-grid.is-visible > .intro-eyebrow  { transition-delay: 0.05s; }
+.intro-grid.is-visible > .intro-visual   { transition-delay: 0.1s;  }
+.intro-grid.is-visible > .intro-title    { transition-delay: 0.15s; }
+.intro-grid.is-visible > .intro-subtitle { transition-delay: 0.32s; }
+.intro-grid.is-visible > .intro-body     { transition-delay: 0.44s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .alert-dot {
+    animation: none;
+  }
+
+  .chip-svg.spin-once {
+    animation: none;
+  }
+
+  .intro-grid > *,
+  .intro-visual-hint {
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

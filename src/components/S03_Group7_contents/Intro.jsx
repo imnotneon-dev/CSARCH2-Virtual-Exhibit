@@ -1,12 +1,25 @@
 import '../../styles/S03_Group7_spectre.css';
 import { useReveal } from "./Animation.jsx";
+import { useState } from "react";
 
 export default function Intro() {
   const [ref, visible] = useReveal(0.1);
+  const [spinKey, setSpinKey] = useState(0);
+
+  // Remounting the <svg> (via key) restarts the spin animation from 0deg
+  // every time, even on rapid repeat hovers, with no manual cleanup needed.
+  function triggerSpin() {
+    setSpinKey((key) => key + 1);
+  }
+
   return (
     <>
     <div className="spectreTheme">
       <div className="alert-strip">
+        <span className="alert-tag">
+          <i className="alert-dot" aria-hidden="true" />
+          Alert
+        </span>
         <span className="alert-track">
           <span className="alert-text">
             VULNERABILITY DISCLOSURE — JANUARY 3, 2018 — SPECTRE (CVE-2017-5753 / CVE-2017-5715) + MELTDOWN (CVE-2017-5754) — HARDWARE-LEVEL EXPLOIT — ALL MODERN CPUs AFFECTED
@@ -19,7 +32,7 @@ export default function Intro() {
         <div className="intro-glow" />
         <div className="intro-glow-2" />
 
-        <div ref={ref} className={`intro-inner intro-grid reveal ${visible ? "is-visible" : ""}`}>
+        <div ref={ref} className={`intro-inner intro-grid ${visible ? "is-visible" : ""}`}>
           <div className="intro-eyebrow">Core Concepts — CS Architecture</div>
 
           <h1 className="intro-title">
@@ -28,8 +41,12 @@ export default function Intro() {
             <span className="word-meltdown">Meltdown</span>
           </h1>
 
-          <div className="intro-visual" aria-hidden="true">
-            <svg viewBox="0 0 200 200" className="chip-svg">
+          <div
+            className="intro-visual"
+            aria-hidden="true"
+            onMouseEnter={triggerSpin}
+          >
+            <svg key={spinKey} viewBox="0 0 200 200" className="chip-svg spin-once">
               <rect x="55" y="55" width="90" height="90" rx="4" className="chip-die" />
               <rect x="75" y="75" width="50" height="50" rx="2" className="chip-core" />
               <rect x="88" y="88" width="24" height="24" className="chip-hot" />
@@ -45,6 +62,7 @@ export default function Intro() {
               </g>
               <circle cx="100" cy="100" r="6" className="chip-pulse" />
             </svg>
+            <span className="intro-visual-hint">// hover the die</span>
           </div>
 
           <p className="intro-subtitle">
@@ -53,16 +71,7 @@ export default function Intro() {
           </p>
 
           <p className="section-body intro-body" style={{ marginTop: '1.5rem', maxWidth: '640px' }}>
-            Unlike typical viruses that can easily be deleted, these were &ldquo;hardware
-            vulnerabilities&rdquo; that had existed for decades. The problem originated
-            from a design choice to make devices faster by having chips predict the
-            user&rsquo;s next action. However, this speed trick inadvertently left a
-            backdoor for hackers to steal private information, such as passwords.
-            Furthermore, this discovery caused a global panic because the flaw was built
-            into the physical parts of the machines, making it nearly impossible to fix
-            without slowing down computers everywhere. Ultimately, Spectre and Meltdown
-            served as a powerful lesson that the rush for faster technology can create
-            deep security risks that put the entire world&rsquo;s privacy at stake.
+            Unlike typical viruses, Spectre and Meltdown were long-standing hardware vulnerabilities caused by speculative execution, a design choice that improved performance but unintentionally exposed sensitive data, such as passwords. Since the flaws were built into computer hardware, fixing them required security patches that often reduced performance, highlighting the trade-off between speed and security.
           </p>
         </div>
       </section>
